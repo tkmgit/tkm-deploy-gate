@@ -181,6 +181,54 @@ class TestMdLayer(TreeCase):
         self.assertNotIn("md.alternate_link", self.error_rules())
 
 
+class TestRouteConvention(TreeCase):
+    """A site that publishes /about and one that publishes /about/ are both
+    internally consistent. The engine must not pick for them."""
+
+    def _switch_to_no_trailing_slash(self):
+        for rel in ("about/index.html", "pricing/index.html"):
+            trees._edit(self.root, rel, '%s/%s/"' % (trees.SITE, rel.split("/")[0]),
+                        '%s/%s"' % (trees.SITE, rel.split("/")[0]))
+        sm = (self.root / "sitemap.xml").read_text(encoding="utf-8")
+        for slug in ("about", "pricing"):
+            sm = sm.replace("%s/%s/</loc>" % (trees.SITE, slug),
+                            "%s/%s</loc>" % (trees.SITE, slug))
+        (self.root / "sitemap.xml").write_text(sm, encoding="utf-8")
+
+    def test_no_trailing_slash_site_fails_under_the_default(self):
+        self._switch_to_no_trailing_slash()
+        rules = self.error_rules()
+        self.assertIn("structure.canonical", rules)
+        self.assertIn("sitemap.matches_indexable", rules)
+
+    def test_and_passes_once_the_convention_is_declared(self):
+        self._switch_to_no_trailing_slash()
+        cfg = self.config.read_text(encoding="utf-8").replace(
+            'root = "."', 'root = "."\ntrailing_slash = false')
+        self.config.write_text(cfg, encoding="utf-8")
+        self.assertEqual([], [(f.rule, f.detail) for f in self.errors()])
+
+
+class TestExclude(TreeCase):
+    def test_a_non_page_file_breaks_every_page_rule(self):
+        # A Netlify forms blueprint: no canonical, no h1, no JSON-LD, by design.
+        (self.root / "__forms.html").write_text(
+            "<html><body><form name='contact'></form></body></html>",
+            encoding="utf-8")
+        rules = self.error_rules()
+        self.assertIn("structure.canonical", rules)
+        self.assertIn("schema.jsonld_present", rules)
+
+    def test_until_it_is_excluded(self):
+        (self.root / "__forms.html").write_text(
+            "<html><body><form name='contact'></form></body></html>",
+            encoding="utf-8")
+        cfg = self.config.read_text(encoding="utf-8").replace(
+            'root = "."', 'root = "."\nexclude = ["__forms.html"]')
+        self.config.write_text(cfg, encoding="utf-8")
+        self.assertEqual([], [(f.rule, f.detail) for f in self.errors()])
+
+
 class TestConfig(TreeCase):
     def test_unknown_rule_id_is_fatal(self):
         cfg = self.config.read_text(encoding="utf-8")

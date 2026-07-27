@@ -28,7 +28,9 @@ CRASHED = "engine.rule_crashed"
 
 def run(config_path: Path) -> tuple[Report, object]:
     config = load(config_path)
-    site = Site(config.root, config.url)
+    site = Site(config.root, config.url,
+                trailing_slash=config.trailing_slash,
+                exclude=config.exclude)
     report = Report()
 
     for rule_id, fn in RULES.items():

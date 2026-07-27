@@ -5,6 +5,10 @@
 name = "example.com"
 url  = "https://example.com"      # https origin, no trailing slash
 root = "."                        # "dist" for a site that builds
+trailing_slash = true             # does this site publish /about/ or /about ?
+                                  # canonical, sitemap and file layout must agree
+exclude = []                      # files that are not pages at all, e.g.
+                                  # ["__forms.html"], glob patterns allowed
 
 # ---------------------------------------------------------------- inventory
 [rules."pages.count"]             # default: error, on

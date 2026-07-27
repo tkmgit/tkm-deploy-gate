@@ -6,6 +6,7 @@ the gate's only output is a verdict.
 
 from __future__ import annotations
 
+import fnmatch
 import re
 from functools import cached_property
 from pathlib import Path
@@ -21,9 +22,21 @@ RE_JSONLD = re.compile(
 
 
 class Site:
-    def __init__(self, root: Path, url: str):
+    def __init__(self, root: Path, url: str, *, trailing_slash: bool = True,
+                 exclude: list[str] | None = None):
         self.root = root
         self.url = url.rstrip("/")
+        # Route convention. A site that publishes /about and a site that
+        # publishes /about/ are both internally consistent; the engine must not
+        # pick for them. What matters is that canonical, sitemap and the file
+        # layout agree, and that is what the rules check once they know which
+        # convention this site uses.
+        self.trailing_slash = trailing_slash
+        # Files that are not pages at all. A Netlify forms blueprint has no
+        # canonical, no h1 and no JSON-LD by design; reporting it as a broken
+        # page trains the reader to skim the output, which is how a real
+        # finding gets missed.
+        self.exclude = list(exclude or [])
 
     # ------------------------------------------------------------------ files
     def path(self, rel: str) -> Path:
@@ -45,9 +58,13 @@ class Site:
     def html_files(self) -> list[str]:
         found = []
         for p in self.root.rglob("*.html"):
-            if SKIP_DIRS & set(p.relative_to(self.root).parts):
+            rel = p.relative_to(self.root)
+            if SKIP_DIRS & set(rel.parts):
                 continue
-            found.append(p.relative_to(self.root).as_posix())
+            posix = rel.as_posix()
+            if any(fnmatch.fnmatch(posix, pat) for pat in self.exclude):
+                continue
+            found.append(posix)
         return sorted(found)
 
     @cached_property
@@ -59,7 +76,8 @@ class Site:
         if rel == "index.html":
             return "/"
         if rel.endswith("/index.html"):
-            return "/" + rel[: -len("index.html")]
+            route = "/" + rel[: -len("index.html")]
+            return route if self.trailing_slash else route.rstrip("/")
         return "/" + rel
 
     @staticmethod
