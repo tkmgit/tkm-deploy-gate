@@ -1,0 +1,146 @@
+"""The tree under inspection.
+
+Loaded once, read many times. Nothing here writes, moves or fixes anything:
+the gate's only output is a verdict.
+"""
+
+from __future__ import annotations
+
+import re
+from functools import cached_property
+from pathlib import Path
+
+SKIP_DIRS = {".git", "node_modules", ".netlify", "__pycache__"}
+
+RE_ROBOTS_META = re.compile(r'<meta\s+name="robots"\s+content="([^"]*)"', re.I)
+RE_SCRIPT = re.compile(r"<script([^>]*)>(.*?)</script>", re.S | re.I)
+RE_STYLE = re.compile(r"<style([^>]*)>(.*?)</style>", re.S | re.I)
+RE_JSONLD = re.compile(
+    r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>', re.S | re.I
+)
+
+
+class Site:
+    def __init__(self, root: Path, url: str):
+        self.root = root
+        self.url = url.rstrip("/")
+
+    # ------------------------------------------------------------------ files
+    def path(self, rel: str) -> Path:
+        return self.root / rel
+
+    def exists(self, rel: str) -> bool:
+        return (self.root / rel).exists()
+
+    def read(self, rel: str) -> str:
+        return (self.root / rel).read_text(encoding="utf-8")
+
+    def read_if(self, rel: str) -> str | None:
+        p = self.root / rel
+        if not p.is_file():
+            return None
+        return p.read_text(encoding="utf-8")
+
+    @cached_property
+    def html_files(self) -> list[str]:
+        found = []
+        for p in self.root.rglob("*.html"):
+            if SKIP_DIRS & set(p.relative_to(self.root).parts):
+                continue
+            found.append(p.relative_to(self.root).as_posix())
+        return sorted(found)
+
+    @cached_property
+    def pages(self) -> dict[str, str]:
+        return {rel: self.read(rel) for rel in self.html_files}
+
+    # ----------------------------------------------------------------- routes
+    def route_of(self, rel: str) -> str:
+        if rel == "index.html":
+            return "/"
+        if rel.endswith("/index.html"):
+            return "/" + rel[: -len("index.html")]
+        return "/" + rel
+
+    @staticmethod
+    def is_noindex(src: str) -> bool:
+        m = RE_ROBOTS_META.search(src)
+        return bool(m and "noindex" in m.group(1).lower())
+
+    @cached_property
+    def indexable(self) -> dict[str, str]:
+        return {
+            rel: src
+            for rel, src in self.pages.items()
+            if not self.is_noindex(src) and rel != "404.html"
+        }
+
+    # ---------------------------------------------------------------- extract
+    @staticmethod
+    def inline_scripts(src: str) -> list[str]:
+        """Bodies of inline scripts the browser will execute.
+
+        JSON-LD is data, not script, and is never hashed. A script with a src
+        attribute has no body to hash.
+        """
+        out = []
+        for attrs, body in RE_SCRIPT.findall(src):
+            if "application/ld+json" in attrs.lower():
+                continue
+            if re.search(r'\ssrc\s*=', attrs, re.I):
+                continue
+            out.append(body)
+        return out
+
+    @staticmethod
+    def external_scripts(src: str) -> list[str]:
+        out = []
+        for attrs, _ in RE_SCRIPT.findall(src):
+            m = re.search(r'src="([^"]+)"', attrs)
+            if m and m.group(1).startswith("http"):
+                out.append(m.group(1))
+        return out
+
+    @staticmethod
+    def inline_styles(src: str) -> list[str]:
+        return [body for _, body in RE_STYLE.findall(src)]
+
+    @staticmethod
+    def jsonld_blocks(src: str) -> list[str]:
+        return RE_JSONLD.findall(src)
+
+    # ------------------------------------------------------------------ links
+    def resolve(self, ref: str, from_path: str) -> str | None:
+        """Map a reference to a repo relative file, or None if it is off site.
+
+        Absolute URLs on our own origin are still our files: schema blocks and
+        og:image tags use that form, so they get checked like any other link.
+        """
+        if ref.startswith(self.url):
+            ref = ref[len(self.url):] or "/"
+        ref = ref.split("#")[0].split("?")[0]
+        if not ref or ref.startswith(("http", "mailto:", "tel:", "data:", "//")):
+            return None
+        if ref.startswith("/"):
+            target = ref.lstrip("/")
+        else:
+            target = _normpath(Path(from_path).parent.as_posix() + "/" + ref)
+        if target == "" or target.endswith("/"):
+            target = target + "index.html"
+        if (self.root / target).is_dir():
+            target = target.rstrip("/") + "/index.html"
+        return target
+
+
+def _normpath(p: str) -> str:
+    parts: list[str] = []
+    for seg in p.split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(seg)
+    trailing = "/" if p.endswith("/") else ""
+    return "/".join(parts) + trailing

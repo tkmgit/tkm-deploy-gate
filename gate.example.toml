@@ -1,0 +1,95 @@
+# Every rule with its default. Copy what you need; omitted rules keep defaults.
+# An unknown rule id is a fatal error, so a typo cannot silently disable a rule.
+
+[site]
+name = "example.com"
+url  = "https://example.com"      # https origin, no trailing slash
+root = "."                        # "dist" for a site that builds
+
+# ---------------------------------------------------------------- inventory
+[rules."pages.count"]             # default: error, on
+min_pages = 1
+
+# ------------------------------------------------------------------- robots
+[rules."robots.no_blanket_disallow"]   # default: error, on
+path = "robots.txt"
+
+[rules."robots.declares_sitemap"]      # default: error, on
+sitemap = "/sitemap.xml"
+
+# -------------------------------------------------------------------- fonts
+[rules."fonts.no_third_party"]         # default: error, on
+forbidden_hosts = ["fonts.googleapis.com", "fonts.gstatic.com"]
+extra_files = ["style.css"]
+
+# --------------------------------------------------------------------- form
+[rules."form.required_markup"]         # default: error, OFF
+enabled = false
+page = "contact/index.html"
+required = [
+  'data-netlify="true"',
+  'netlify-honeypot="company-website"',
+  'name="company-website"',
+  'name="form-name"',
+]
+forbidden_text = ["Mockup form"]
+
+# ------------------------------------------------------------------ headers
+[rules."headers.required_present"]     # default: error, on
+path = "_headers"
+required = [
+  "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy",
+  "X-Frame-Options", "Strict-Transport-Security", "Content-Security-Policy",
+]
+
+# ---------------------------------------------------------------------- CSP
+[rules."csp.script_hashes"]            # default: error, on
+[rules."csp.style_hashes"]             # default: error, OFF; on where <style> is inline
+enabled = false
+[rules."csp.external_script_origins"]  # default: error, on
+[rules."csp.no_inline_handlers"]       # default: error, on
+
+# ---------------------------------------------------------------- structure
+[rules."structure.single_h1"]          # default: WARN on hand written
+severity = "warn"                      # set to error on generated output
+[rules."structure.canonical"]          # default: error, on
+[rules."structure.meta_description"]   # default: error, on
+[rules."structure.description_length"] # default: warn, on
+min = 80
+max = 200
+
+# ------------------------------------------------------------------- schema
+[rules."schema.jsonld_present"]        # default: error, on
+[rules."schema.jsonld_parses"]         # default: error, on
+
+# ----------------------------------------------------------------- md layer
+[rules."md.alternate_link"]            # default: error, OFF
+enabled = false
+headers_path = "_headers"
+
+# -------------------------------------------------------------------- links
+[rules."links.refs_resolve"]           # default: error, on
+extra_files = ["style.css"]
+
+# ------------------------------------------------------------------ sitemap
+[rules."sitemap.matches_indexable"]    # default: error, on
+path = "sitemap.xml"
+[rules."sitemap.no_foreign_hosts"]     # default: error, on
+
+# ------------------------------------------------------------------- legacy
+[rules."legacy.retired_hosts"]         # default: error, OFF
+enabled = false
+hosts = []                             # every host this site has retired
+comment_prefixed_files = ["_redirects", "_headers", "robots.txt", "llms.txt"]
+extra_files = ["robots.txt", "sitemap.xml", "llms.txt", "style.css", "_headers", "_redirects"]
+
+# ------------------------------------------------------------------- prices
+[rules."prices.quoted_in_price_list"]  # default: error, OFF
+enabled = false
+price_list = "md/pricing.md"
+min_prices = 1
+extra_files = ["llms.txt"]
+
+# --------------------------------------------------------------------- a11y
+[rules."a11y.img_alt"]                 # default: warn, on
+severity = "warn"                      # error on generated output

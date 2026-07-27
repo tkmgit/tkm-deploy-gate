@@ -1,0 +1,150 @@
+# tkm-deploy-gate
+
+A read-only deploy gate for the TKM static site portfolio. It runs as the
+Netlify build command, reads the tree that is about to be published, and exits
+non zero if a declared invariant is broken. Netlify treats that as a failed
+build and keeps the previously published deploy live, so a refusal never takes
+a site down. It only stops a bad change.
+
+Zero dependencies, standard library only, Python 3.11 or newer.
+
+## Why it exists
+
+A solo operator has no reviewer. The gate is the reviewer. Low change frequency
+makes this worse rather than better: the longer the gap between changes, the
+staler the context, and the easier it is to ship a stale CSP hash or a sitemap
+that disagrees with the pages.
+
+What a gate catches that reading a diff does not is **cross file consistency**,
+which diffs structurally hide. A stale CSP hash lives in a file the commit did
+not touch. A deleted image's referrers are not in the diff. A sitemap that no
+longer matches the indexable set looks fine from either side.
+
+## Install and run
+
+Pin a version. Never track a branch: one engine bug must not be able to block
+every site's deploy on the same afternoon.
+
+```toml
+# netlify.toml
+[build]
+  command = "pip install 'tkm-deploy-gate @ git+https://github.com/tkmgit/tkm-deploy-gate@v1.0.0' && tkm-gate"
+  publish = "."
+
+[build.environment]
+  PYTHON_VERSION = "3.11"
+```
+
+For a site that builds, run the gate **after** the build and point it at the
+output, never at the source. Source side checks miss build introduced failures,
+such as a prerender step silently dropping a route, which are the most likely
+failures on those sites.
+
+```toml
+[build]
+  command = "npm run build && pip install 'tkm-deploy-gate @ git+https://github.com/tkmgit/tkm-deploy-gate@v1.0.0' && tkm-gate"
+  publish = "dist"
+```
+
+Locally, exactly what Netlify does:
+
+```
+tkm-gate                 # reads ./gate.toml
+tkm-gate -c site/gate.toml
+```
+
+## Configuration
+
+Site specific truth lives in the site's `gate.toml`, never in the engine.
+Site specific rules go in the site's config or a site local plugin, never into
+the engine core. There are no vendored copies of the engine: six copies drift
+into six versions, which is the failure this project was built to stop.
+
+```toml
+[site]
+name = "example.com"
+url  = "https://example.com"
+root = "."          # "dist" for a site that builds
+
+[rules."pages.count"]
+min_pages = 15
+
+[rules."a11y.img_alt"]
+severity = "error"  # generated output: one component change fans out
+                    # hand written pages: leave it at the default warn
+```
+
+Each `[rules."<id>"]` table accepts `severity` (`error`, `warn`, `off`),
+`enabled`, `min_matches`, and any options the rule documents. See
+`gate.example.toml` for every rule with its defaults.
+
+An unknown rule id is a fatal configuration error, not a warning. A typo that
+silently disables a rule is the same failure as not having the rule.
+
+## Severity
+
+`error` blocks the deploy. `warn` prints and does not block.
+
+The split is not about how annoying a finding is. **Cross file and intent
+rules are errors**: broken references, CSP hashes versus actual scripts,
+sitemap versus the indexable set, a blanket `Disallow: /`, retired hostnames,
+markdown alternate targets. **Judgement thresholds are warnings**: meta
+description length, and `alt` and `h1` on hand written sites.
+
+## The vacuous pass guard
+
+Every rule declares `min_matches`. If a rule inspects fewer items than that and
+therefore passes, the engine reports `engine.vacuous_pass` as an **error**,
+whatever severity the site gave the rule. A selector that matches zero pages
+and passes forever is the checker's own version of the drift it exists to
+catch, and the guard protects the gate, not the site.
+
+A rule that raises is reported as `engine.rule_crashed`, also an error. A gate
+never falls back to passing.
+
+## The escape hatch
+
+Put a token in the commit message. It is scoped to that one commit and the
+record is permanent, because it lives in git history.
+
+```
+git commit -m "hotfix: restore the booking link
+
+[gate-bypass: canonical rule is wrong, live page is right, fixing next]"
+```
+
+A reason under twelve characters does not count, so an empty token cannot wave
+a deploy through. A bypass still runs every rule and prints every finding; it
+changes the exit code and says so loudly.
+
+Deliberately **not** a Netlify environment variable, which survives the
+emergency it was declared for, and **not** a warn only mode, because a warning
+a solo operator does not read defeats the failure class the gate exists for.
+
+The hatch does not defeat the gate. The threat model is a forgetful operator,
+not a malicious one. A logged bypass is a decision; the gate exists to prevent
+non decisions. A gate with no hatch gets one installed at 2am by commenting out
+the build command.
+
+The sharpest case for it: because the previous deploy stays live, a false
+positive on a commit that fixes a real live problem actively preserves the bad
+state. That alone justifies a per commit override.
+
+## Tests
+
+The fixture suite is permanent and runs whenever the engine changes.
+
+```
+python3 -m unittest discover -s tests -v
+```
+
+It asserts two things, and the second matters as much as the first: every
+deliberate break is caught **by the rule that is supposed to catch it**, and
+the known good tree passes clean, so the suite cannot pass by failing
+everything.
+
+## Scope
+
+This is an internal tool for the tkmgit portfolio. It is public only so that
+private site repositories can install a pinned version without a credential in
+every Netlify environment. It contains no site content and no secrets.
