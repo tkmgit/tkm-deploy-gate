@@ -216,6 +216,14 @@ BREAKS: dict[str, tuple[str, str, callable]] = {
         '<h1>Home</h1><a href="https://old-preview.example/x">old preview</a>')),
     "unknown_price": ("prices.quoted_in_price_list", "error", lambda r: _edit(
         r, "pricing/index.html", DESC, DESC[:100] + " Packages start at 175 EUR.")),
+    "md_headers_entry_dropped": ("md.alternate_link", "error", lambda r: (
+        _edit(r, "_headers", "/md/*\n  Content-Type: text/markdown; charset=utf-8\n", ""),
+        _edit(r, "gate.toml", '[rules."md.alternate_link"]\nenabled = true',
+              '[rules."md.alternate_link"]\nenabled = true\nrequire_headers_entry = true'),
+    )),
+    "md_link_missing": ("md.alternate_link", "error", lambda r: _edit(
+        r, "about/index.html",
+        '<link rel="alternate" type="text/markdown" href="%s/md/about.md" />' % SITE, "")),
     "missing_alt": ("a11y.img_alt", "warn", lambda r: _edit(
         r, "index.html", '<img src="/img/hero.png" alt="A hero image" />',
         '<img src="/img/hero.png" />')),

@@ -160,6 +160,27 @@ class TestBypass(TreeCase):
         self.assertIn("structure.canonical", self.error_rules())
 
 
+class TestMdLayer(TreeCase):
+    def test_headers_entry_is_not_required_by_default(self):
+        # Netlify already serves .md as text/markdown. Demanding an explicit
+        # _headers entry would fail a site that is correct.
+        trees._edit(self.root, "_headers",
+                    "/md/*\n  Content-Type: text/markdown; charset=utf-8\n", "")
+        self.assertNotIn("md.alternate_link", self.error_rules())
+
+    def test_exempt_page_needs_no_rendition(self):
+        trees._edit(self.root, "about/index.html",
+                    '<link rel="alternate" type="text/markdown" href="%s/md/about.md" />'
+                    % trees.SITE, "")
+        self.assertIn("md.alternate_link", self.error_rules())
+        cfg = self.config.read_text(encoding="utf-8").replace(
+            '[rules."md.alternate_link"]\nenabled = true',
+            '[rules."md.alternate_link"]\nenabled = true\n'
+            'exempt = ["about/index.html"]')
+        self.config.write_text(cfg, encoding="utf-8")
+        self.assertNotIn("md.alternate_link", self.error_rules())
+
+
 class TestConfig(TreeCase):
     def test_unknown_rule_id_is_fatal(self):
         cfg = self.config.read_text(encoding="utf-8")

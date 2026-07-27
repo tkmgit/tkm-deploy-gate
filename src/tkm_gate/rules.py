@@ -361,23 +361,43 @@ def _served_as_markdown(headers_txt: str, path: str) -> bool:
 
 @rule("md.alternate_link")
 def md_alternate_link(ctx: Ctx) -> None:
+    """Every indexable page declares a markdown rendition and that file exists.
+
+    Two things this rule deliberately does NOT decide:
+
+    * Whether the file is actually SERVED as markdown. Netlify already maps .md
+      to text/markdown, so demanding an explicit _headers entry reports a false
+      positive on a site that is correct, and a false positive that has to be
+      waved through teaches the bypass habit. Set require_headers_entry = true
+      on a site that pins the type itself. What the wire actually returns is the
+      post-deploy live probe's question; a repo-side gate cannot see it.
+    * Which pages need a rendition. A site may deliberately leave legal pages
+      out of its md layer. List them in exempt; an empty exempt list means every
+      indexable page must have one.
+    """
     headers_txt = ctx.site.read_if(ctx.opt("headers_path", "_headers")) or ""
+    require_entry = bool(ctx.opt("require_headers_entry", False))
+    exempt = set(ctx.opt("exempt", []))
     for path, src in ctx.site.indexable.items():
+        if path in exempt:
+            continue
         ctx.seen()
         m = re.search(
             r'<link[^>]*rel="alternate"[^>]*type="text/markdown"[^>]*href="([^"]+)"', src
         )
         if not m:
-            ctx.fail("%s has no markdown alternate link" % path)
+            ctx.fail(
+                "%s has no markdown alternate link. If that is deliberate, list "
+                "it in exempt so the decision is written down." % path
+            )
             continue
         target = m.group(1).replace(ctx.site.url, "").lstrip("/")
         if not ctx.site.exists(target):
             ctx.fail("%s points at %s which does not exist" % (path, target))
-        elif not _served_as_markdown(headers_txt, "/" + target):
+        elif require_entry and not _served_as_markdown(headers_txt, "/" + target):
             ctx.fail(
                 "%s is not covered by an _headers rule that sets a markdown "
-                "Content-Type, so it would be served as text/plain and no agent "
-                "would treat it as markdown" % target
+                "Content-Type, and this site requires one" % target
             )
 
 

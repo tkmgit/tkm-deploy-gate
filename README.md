@@ -130,6 +130,18 @@ The sharpest case for it: because the previous deploy stays live, a false
 positive on a commit that fixes a real live problem actively preserves the bad
 state. That alone justifies a per commit override.
 
+## What this gate deliberately does not check
+
+Served behaviour. A repo side gate reads the tree that is about to be published;
+it cannot see what the edge actually returns. A `_headers` syntax error leaves
+the file in the tree and every header absent on the wire, and no amount of
+repo side checking finds that. `md.alternate_link` therefore checks that a
+rendition is declared and that the file exists, and leaves the served
+`Content-Type` alone unless a site sets `require_headers_entry = true`.
+
+The sibling to this gate is a post deploy live probe that curls the real URLs.
+Different question, different tool, run after the publish rather than before it.
+
 ## Tests
 
 The fixture suite is permanent and runs whenever the engine changes.

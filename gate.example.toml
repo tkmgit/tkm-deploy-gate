@@ -66,6 +66,9 @@ max = 200
 [rules."md.alternate_link"]            # default: error, OFF
 enabled = false
 headers_path = "_headers"
+require_headers_entry = false          # Netlify already serves .md as text/markdown.
+                                       # true only if this site pins the type itself.
+exempt = []                            # pages that deliberately have no rendition
 
 # -------------------------------------------------------------------- links
 [rules."links.refs_resolve"]           # default: error, on
