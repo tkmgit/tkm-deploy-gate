@@ -161,19 +161,20 @@ def _blocks(headers_txt: str) -> list[tuple[str, dict[str, str]]]:
 
 
 def _global_block(headers_txt: str) -> str:
-    block, capture = "", False
-    for line in headers_txt.splitlines():
-        if line.strip() == "/*":
-            capture = True
+    """Every header applied to /*, from ALL /* blocks.
+
+    A _headers file may declare /* more than once and Netlify merges them. A
+    post-build step that appends its own /* block is the normal way to add a
+    generated CSP, so reading only the first block misses exactly the header
+    most worth checking, and reports it missing on a site that serves it.
+    """
+    out = ""
+    for pattern, headers in _blocks(headers_txt):
+        if pattern != "/*":
             continue
-        if capture:
-            if line.startswith((" ", "\t")):
-                block += line.strip() + "\n"
-            elif line.strip() == "":
-                continue
-            else:
-                break
-    return block
+        for key, value in headers.items():
+            out += "%s: %s\n" % (key, value)
+    return out
 
 
 @rule("headers.required_present")

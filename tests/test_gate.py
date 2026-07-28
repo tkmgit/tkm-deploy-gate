@@ -320,6 +320,25 @@ class TestApprovedScriptSet(TreeCase):
         self.assertIn("scripts.approved_set", self.error_rules())
 
 
+class TestHeadersMerging(TreeCase):
+    def test_a_second_global_block_still_counts(self):
+        # A post-build step appending its own /* block is the normal way to add
+        # a generated CSP. Reading only the first block would report the header
+        # missing on a site that serves it.
+        h = self.root / "_headers"
+        src = h.read_text(encoding="utf-8")
+        csp = [l for l in src.splitlines()
+               if l.strip().startswith("Content-Security-Policy:")][0]
+        src = src.replace(csp + "\n", "")
+        src += "\n/*\n" + csp + "\n"
+        h.write_text(src, encoding="utf-8")
+        self.assertNotIn("headers.required_present", self.error_rules())
+
+    def test_a_genuinely_missing_header_is_still_caught(self):
+        trees.BREAKS["missing_security_header"][2](self.root)
+        self.assertIn("headers.required_present", self.error_rules())
+
+
 class TestConfig(TreeCase):
     def test_unknown_rule_id_is_fatal(self):
         cfg = self.config.read_text(encoding="utf-8")
