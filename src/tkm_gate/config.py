@@ -31,6 +31,7 @@ DEFAULTS: dict[str, tuple[Severity, int, bool]] = {
     "csp.style_hashes":               (Severity.ERROR, 0, False),
     "csp.external_script_origins":    (Severity.ERROR, 0, True),
     "csp.no_inline_handlers":         (Severity.ERROR, 1, True),
+    "scripts.approved_set":           (Severity.ERROR, 1, False),
     "structure.single_h1":            (Severity.WARN,  1, True),
     "structure.canonical":            (Severity.ERROR, 1, True),
     "structure.meta_description":     (Severity.ERROR, 1, True),

@@ -277,6 +277,49 @@ class TestRouteMap(TreeCase):
         self.assertIn("engine.rule_crashed", self.error_rules())
 
 
+class TestApprovedScriptSet(TreeCase):
+    """For a site that generates its CSP, matching policy to output proves
+    nothing. This rule asks whether the output matches intent."""
+
+    def _enable(self, hashes):
+        cfg = self.config.read_text(encoding="utf-8")
+        cfg += '\n[rules."scripts.approved_set"]\nenabled = true\nhashes = %s\n' % (
+            "[" + ", ".join('"%s"' % h for h in hashes) + "]")
+        self.config.write_text(cfg, encoding="utf-8")
+
+    def test_the_approved_script_passes(self):
+        self._enable([trees.sha256(trees.INLINE_JS)])
+        self.assertNotIn("scripts.approved_set", self.error_rules())
+
+    def test_a_new_script_fails_even_though_its_hash_is_in_the_policy(self):
+        # Simulate a generator: add a script AND add its hash to the policy, so
+        # csp.script_hashes is satisfied. Only intent verification catches it.
+        extra = "\n  window.__t = 1;\n"
+        trees._edit(self.root, "index.html", "</body>",
+                    "<script>%s</script></body>" % extra)
+        trees._edit(self.root, "_headers", "script-src 'self' '%s'"
+                    % trees.sha256(trees.INLINE_JS),
+                    "script-src 'self' '%s' '%s'"
+                    % (trees.sha256(trees.INLINE_JS), trees.sha256(extra)))
+        self._enable([trees.sha256(trees.INLINE_JS)])
+        report, _ = run(self.config)
+        caught = {f.rule for f in report.errors}
+        self.assertNotIn("csp.script_hashes", caught,
+                         "the policy agrees with the output, which is exactly "
+                         "the blind spot this rule exists for")
+        self.assertIn("scripts.approved_set", caught)
+
+    def test_a_stale_approval_fails(self):
+        self._enable([trees.sha256(trees.INLINE_JS), "sha256-nolongerpresent="])
+        self.assertIn("scripts.approved_set", self.error_rules())
+
+    def test_enabled_with_no_hashes_fails_rather_than_passing_vacuously(self):
+        cfg = self.config.read_text(encoding="utf-8")
+        cfg += '\n[rules."scripts.approved_set"]\nenabled = true\n'
+        self.config.write_text(cfg, encoding="utf-8")
+        self.assertIn("scripts.approved_set", self.error_rules())
+
+
 class TestConfig(TreeCase):
     def test_unknown_rule_id_is_fatal(self):
         cfg = self.config.read_text(encoding="utf-8")

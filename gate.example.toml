@@ -57,6 +57,15 @@ enabled = false
 [rules."csp.external_script_origins"]  # default: error, on
 [rules."csp.no_inline_handlers"]       # default: error, on
 
+# Intent verification, for a site that GENERATES its CSP from the build output.
+# There, checking the policy against the scripts is a tautology: the generator
+# derived one from the other and will happily hash a script nobody wanted.
+# Generation asks "does the policy match the output". This asks "does the output
+# match intent". Turn csp.script_hashes off and this on, not both.
+[rules."scripts.approved_set"]         # default: error, OFF
+enabled = false
+hashes = []                            # every inline script you intend to ship
+
 # ---------------------------------------------------------------- structure
 [rules."structure.single_h1"]          # default: WARN on hand written
 severity = "warn"                      # set to error on generated output

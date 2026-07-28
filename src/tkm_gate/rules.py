@@ -279,6 +279,50 @@ def csp_no_inline_handlers(ctx: Ctx) -> None:
             )
 
 
+@rule("scripts.approved_set")
+def scripts_approved_set(ctx: Ctx) -> None:
+    """Every inline script in the output is one somebody approved.
+
+    This is the rule for a site that GENERATES its CSP from the build output.
+    There, re-checking that the policy matches the scripts is a tautology: the
+    generator just derived one from the other and will happily hash a script
+    nobody wanted. Generation answers "does the policy match the output".
+    This answers the different and harder question: "does the output match
+    intent".
+
+    Both directions are errors. An unapproved script is a script that shipped
+    without anyone deciding it should. An approved hash with no matching script
+    is a stale approval, which quietly widens what would pass next time.
+    """
+    approved = set(ctx.opt("hashes", []))
+    if not approved:
+        ctx.fail(
+            "scripts.approved_set is enabled but no hashes are approved. Run the "
+            "build, hash the inline scripts, and list the ones you intend to ship."
+        )
+        return
+    seen: dict[str, str] = {}
+    for path, src in ctx.site.pages.items():
+        for body in ctx.site.inline_scripts(src):
+            ctx.seen()
+            digest = _sha256(body)
+            seen.setdefault(digest, path)
+    for digest, path in sorted(seen.items()):
+        if digest not in approved:
+            ctx.fail(
+                "%s carries an inline script %s that is not in the approved set. "
+                "The CSP generator would have hashed it and the policy would "
+                "have looked correct, which is why this is checked separately."
+                % (path, digest)
+            )
+    for stale in sorted(approved - set(seen)):
+        ctx.fail(
+            "%s is approved but no page carries that script any more. Remove it "
+            "from the approved set, or it silently pre-approves nothing while "
+            "looking like oversight." % stale
+        )
+
+
 # ----------------------------------------------------------------- structure
 @rule("structure.single_h1")
 def structure_single_h1(ctx: Ctx) -> None:
