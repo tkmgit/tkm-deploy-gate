@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tkm-deploy-gate"
-version = "1.5.0"
+version = "1.6.0"
 description = "Read-only deploy gate for the TKM static site portfolio. Runs as a Netlify build command and refuses to publish a tree that breaks a declared invariant."
 requires-python = ">=3.11"
 dependencies = []
 
 [project.scripts]
 tkm-gate = "tkm_gate.cli:main"
+tkm-probe = "tkm_gate.probe:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

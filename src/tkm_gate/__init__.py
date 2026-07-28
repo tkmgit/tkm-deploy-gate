@@ -6,4 +6,4 @@ Netlify treats that as a failed build and keeps the previously published
 deploy live, so a refusal never takes a site down.
 """
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"

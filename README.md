@@ -130,7 +130,7 @@ The sharpest case for it: because the previous deploy stays live, a false
 positive on a commit that fixes a real live problem actively preserves the bad
 state. That alone justifies a per commit override.
 
-## What this gate deliberately does not check
+## What this gate deliberately does not check, and the probe that does
 
 Served behaviour. A repo side gate reads the tree that is about to be published;
 it cannot see what the edge actually returns. A `_headers` syntax error leaves
@@ -139,8 +139,21 @@ repo side checking finds that. `md.alternate_link` therefore checks that a
 rendition is declared and that the file exists, and leaves the served
 `Content-Type` alone unless a site sets `require_headers_entry = true`.
 
-The sibling to this gate is a post deploy live probe that curls the real URLs.
-Different question, different tool, run after the publish rather than before it.
+`tkm-probe` is the sibling. Same package, opposite side of the publish:
+
+```
+tkm-probe https://example.com --md --collector
+tkm-probe https://a.com https://b.com          # several at once
+```
+
+It checks what only the wire can answer: the security headers are actually
+present, the CSP is enforced rather than quietly demoted to report only, every
+URL the sitemap advertises returns 200, content negotiation really returns
+markdown, and the CSP collector really answers 204.
+
+`--csp-report-only` for a site deliberately still in report only, `--require`
+to replace the default header set, `--max-urls` to cap the sitemap crawl. Exit
+non zero on any failure, so it schedules cleanly.
 
 ## Tests
 
