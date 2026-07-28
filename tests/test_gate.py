@@ -229,6 +229,54 @@ class TestExclude(TreeCase):
         self.assertEqual([], [(f.rule, f.detail) for f in self.errors()])
 
 
+class TestRouteMap(TreeCase):
+    """A prerendered build does not publish pages at the paths they occupy."""
+
+    def _flatten(self):
+        # Move about/index.html to _prerendered/about.html and serve it through
+        # a rewrite, which is what a prerendering build actually produces.
+        pre = self.root / "_prerendered"
+        pre.mkdir()
+        (pre / "about.html").write_text(
+            (self.root / "about" / "index.html").read_text(encoding="utf-8"),
+            encoding="utf-8")
+        shutil.rmtree(self.root / "about")
+        (self.root / "_redirects").write_text(
+            "# comment\n"
+            "/old-about  /about  301\n"
+            "/about/  /_prerendered/about.html  200\n", encoding="utf-8")
+
+    def test_path_derived_routes_are_wrong_for_a_prerendered_tree(self):
+        self._flatten()
+        rules = self.error_rules()
+        self.assertIn("structure.canonical", rules)
+        self.assertIn("sitemap.matches_indexable", rules)
+
+    def test_reading_the_rewrite_map_fixes_it(self):
+        self._flatten()
+        cfg = self.config.read_text(encoding="utf-8").replace(
+            'root = "."', 'root = "."\nroute_map = "_redirects"')
+        self.config.write_text(cfg, encoding="utf-8")
+        self.assertEqual([], [(f.rule, f.detail) for f in self.errors()])
+
+    def test_a_301_does_not_define_where_a_file_is_served(self):
+        self._flatten()
+        # Downgrade the rewrite to a redirect. It no longer maps the file, so
+        # the path-derived route comes back and the tree fails again.
+        (self.root / "_redirects").write_text(
+            "/about/  /_prerendered/about.html  301\n", encoding="utf-8")
+        cfg = self.config.read_text(encoding="utf-8").replace(
+            'root = "."', 'root = "."\nroute_map = "_redirects"')
+        self.config.write_text(cfg, encoding="utf-8")
+        self.assertIn("structure.canonical", self.error_rules())
+
+    def test_a_missing_route_map_file_is_reported_not_ignored(self):
+        cfg = self.config.read_text(encoding="utf-8").replace(
+            'root = "."', 'root = "."\nroute_map = "_redirects"')
+        self.config.write_text(cfg, encoding="utf-8")
+        self.assertIn("engine.rule_crashed", self.error_rules())
+
+
 class TestConfig(TreeCase):
     def test_unknown_rule_id_is_fatal(self):
         cfg = self.config.read_text(encoding="utf-8")

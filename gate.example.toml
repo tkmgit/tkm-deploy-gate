@@ -9,6 +9,10 @@ trailing_slash = true             # does this site publish /about/ or /about ?
                                   # canonical, sitemap and file layout must agree
 exclude = []                      # files that are not pages at all, e.g.
                                   # ["__forms.html"], glob patterns allowed
+# route_map = "_redirects"        # for a prerendered build that serves
+                                  # dist/_prerendered/es--about.html at /es/about.
+                                  # Only 200 rewrites count; a 301 says nothing
+                                  # about where a file is served.
 
 # ---------------------------------------------------------------- inventory
 [rules."pages.count"]             # default: error, on

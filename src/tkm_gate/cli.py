@@ -30,7 +30,8 @@ def run(config_path: Path) -> tuple[Report, object]:
     config = load(config_path)
     site = Site(config.root, config.url,
                 trailing_slash=config.trailing_slash,
-                exclude=config.exclude)
+                exclude=config.exclude,
+                route_map=config.route_map)
     report = Report()
 
     for rule_id, fn in RULES.items():

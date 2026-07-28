@@ -68,6 +68,7 @@ class Config:
     rules: dict[str, RuleConfig]
     trailing_slash: bool = True
     exclude: list[str] = field(default_factory=list)
+    route_map: str | None = None
     extra_text_files: list[str] = field(default_factory=list)
 
     def rule(self, rule_id: str) -> RuleConfig:
@@ -142,5 +143,6 @@ def load(config_path: Path) -> Config:
         rules=rules,
         trailing_slash=bool(site.get("trailing_slash", True)),
         exclude=[str(x) for x in site.get("exclude", [])],
+        route_map=(str(site["route_map"]) if site.get("route_map") else None),
         extra_text_files=[str(x) for x in site.get("extra_text_files", [])],
     )

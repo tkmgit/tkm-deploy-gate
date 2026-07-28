@@ -23,7 +23,7 @@ RE_JSONLD = re.compile(
 
 class Site:
     def __init__(self, root: Path, url: str, *, trailing_slash: bool = True,
-                 exclude: list[str] | None = None):
+                 exclude: list[str] | None = None, route_map: str | None = None):
         self.root = root
         self.url = url.rstrip("/")
         # Route convention. A site that publishes /about and a site that
@@ -37,6 +37,13 @@ class Site:
         # page trains the reader to skim the output, which is how a real
         # finding gets missed.
         self.exclude = list(exclude or [])
+        # Prerendered sites do not publish their pages at the paths they occupy.
+        # A build may write dist/_prerendered/es--about.html and serve it at
+        # /es/about through a rewrite rule. Deriving the route from the file
+        # path is then simply wrong, and the file layout is not the truth: the
+        # rewrite map is. Point this at the redirects file and the engine reads
+        # the same mapping the edge uses.
+        self.route_map_file = route_map
 
     # ------------------------------------------------------------------ files
     def path(self, rel: str) -> Path:
@@ -72,7 +79,43 @@ class Site:
         return {rel: self.read(rel) for rel in self.html_files}
 
     # ----------------------------------------------------------------- routes
+    @cached_property
+    def _routes_by_file(self) -> dict[str, str]:
+        if not self.route_map_file:
+            return {}
+        src = self.read_if(self.route_map_file)
+        if src is None:
+            raise FileNotFoundError(
+                "route_map points at %s which does not exist under %s"
+                % (self.route_map_file, self.root)
+            )
+        mapping: dict[str, str] = {}
+        for line in src.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) < 3 or parts[2].rstrip("!") != "200":
+                # Only a rewrite defines where a file is served. A 301 sends the
+                # visitor somewhere else and says nothing about this file.
+                continue
+            route, target = parts[0], parts[1]
+            if not target.startswith("/") or "*" in line or ":" in route:
+                continue
+            target = target.lstrip("/")
+            if target.endswith("/"):
+                target += "index.html"
+            mapping.setdefault(target, route)
+        return mapping
+
+    @cached_property
+    def _files_by_route(self) -> dict[str, str]:
+        return {route: f for f, route in self._routes_by_file.items()}
+
     def route_of(self, rel: str) -> str:
+        mapped = self._routes_by_file.get(rel)
+        if mapped is not None:
+            return mapped
         if rel == "index.html":
             return "/"
         if rel.endswith("/index.html"):
@@ -139,6 +182,14 @@ class Site:
         ref = ref.split("#")[0].split("?")[0]
         if not ref or ref.startswith(("http", "mailto:", "tel:", "data:", "//")):
             return None
+        # A link points at a route, not at a file. On a prerendered tree those
+        # differ: /es/about is served from _prerendered/es--about.html and
+        # nothing exists at es/about/index.html. Resolve through the rewrite map
+        # first, or every internal link on such a site reads as broken.
+        for candidate in (ref, ref.rstrip("/"), ref.rstrip("/") + "/"):
+            mapped = self._files_by_route.get(candidate)
+            if mapped is not None:
+                return mapped
         if ref.startswith("/"):
             target = ref.lstrip("/")
         else:
