@@ -149,7 +149,12 @@ tkm-probe https://a.com https://b.com          # several at once
 It checks what only the wire can answer: the security headers are actually
 present, the CSP is enforced rather than quietly demoted to report only, every
 URL the sitemap advertises returns 200, content negotiation really returns
-markdown, and the CSP collector really answers 204.
+markdown, and the CSP collector is deployed.
+
+The collector check is a GET expecting 405, not a POST. On sites whose collector
+persists reports, a daily probe posting a fake violation would inject a junk
+record a day into the exact data the store exists to collect. A monitor that
+corrupts what it monitors is worse than no monitor.
 
 `--csp-report-only` for a site deliberately still in report only, `--require`
 to replace the default header set, `--max-urls` to cap the sitemap crawl. Exit

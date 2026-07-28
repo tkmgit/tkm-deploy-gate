@@ -96,6 +96,10 @@ extra_files = ["style.css"]
 path = "sitemap.xml"
 [rules."sitemap.no_foreign_hosts"]     # default: error, on
 
+# ---------------------------------------------------------------- redirects
+[rules."redirects.targets_exist"]      # default: error, on
+path = "_redirects"                    # skipped silently if the file is absent
+
 # ------------------------------------------------------------------- legacy
 [rules."legacy.retired_hosts"]         # default: error, OFF
 enabled = false

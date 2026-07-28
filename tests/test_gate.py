@@ -243,7 +243,7 @@ class TestRouteMap(TreeCase):
         shutil.rmtree(self.root / "about")
         (self.root / "_redirects").write_text(
             "# comment\n"
-            "/old-about  /about  301\n"
+            "/old-about  /  301\n"
             "/about/  /_prerendered/about.html  200\n", encoding="utf-8")
 
     def test_path_derived_routes_are_wrong_for_a_prerendered_tree(self):
@@ -337,6 +337,32 @@ class TestHeadersMerging(TreeCase):
     def test_a_genuinely_missing_header_is_still_caught(self):
         trees.BREAKS["missing_security_header"][2](self.root)
         self.assertIn("headers.required_present", self.error_rules())
+
+
+class TestRedirectTargets(TreeCase):
+    def test_a_redirect_to_a_missing_file_is_caught(self):
+        # The exact bug this rule was written for: hiding a file behind a 404
+        # rule that points at a page the site does not have. The status is still
+        # 404, so it looks like it works, and the platform's generic page ships
+        # instead of yours.
+        (self.root / "_redirects").write_text(
+            "/gate.toml  /not-here.html  404!\n", encoding="utf-8")
+        self.assertIn("redirects.targets_exist", self.error_rules())
+
+    def test_it_passes_once_the_target_exists(self):
+        (self.root / "_redirects").write_text(
+            "/gate.toml  /404.html  404!\n", encoding="utf-8")
+        self.assertNotIn("redirects.targets_exist", self.error_rules())
+
+    def test_external_targets_and_splats_are_skipped(self):
+        (self.root / "_redirects").write_text(
+            "# comment\n"
+            "/out  https://example.org/  301\n"
+            "/en/*  /:splat  301\n", encoding="utf-8")
+        self.assertNotIn("redirects.targets_exist", self.error_rules())
+
+    def test_no_redirects_file_is_not_an_error(self):
+        self.assertNotIn("redirects.targets_exist", self.error_rules())
 
 
 class TestConfig(TreeCase):

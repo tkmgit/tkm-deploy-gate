@@ -42,6 +42,7 @@ DEFAULTS: dict[str, tuple[Severity, int, bool]] = {
     "links.refs_resolve":             (Severity.ERROR, 1, True),
     "sitemap.matches_indexable":      (Severity.ERROR, 1, True),
     "sitemap.no_foreign_hosts":       (Severity.ERROR, 1, True),
+    "redirects.targets_exist":        (Severity.ERROR, 0, True),
     "legacy.retired_hosts":           (Severity.ERROR, 1, False),
     "prices.quoted_in_price_list":    (Severity.ERROR, 1, False),
     "a11y.img_alt":                   (Severity.WARN,  1, True),

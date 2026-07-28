@@ -514,6 +514,47 @@ def sitemap_no_foreign_hosts(ctx: Ctx) -> None:
             ctx.fail("sitemap.xml contains a foreign host: %s" % loc)
 
 
+# ----------------------------------------------------------------- redirects
+@rule("redirects.targets_exist")
+def redirects_targets_exist(ctx: Ctx) -> None:
+    """Every local target in _redirects is a file that exists.
+
+    A redirect to a missing file still returns the status you asked for, so the
+    rule looks like it works and nothing complains. What you actually serve is
+    the platform's generic page instead of yours, and the only way to notice is
+    to read the redirects file next to the tree, which is precisely the
+    cross-file comparison a diff hides.
+
+    External targets, splats and placeholders are skipped: they cannot be
+    resolved against the tree.
+    """
+    src = ctx.site.read_if(ctx.opt("path", "_redirects"))
+    if src is None:
+        return
+    for line in src.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        source, target = parts[0], parts[1]
+        if not target.startswith("/"):
+            continue
+        if "*" in target or ":" in target or "*" in source:
+            continue
+        ctx.seen()
+        rel = target.lstrip("/")
+        if rel == "" or rel.endswith("/"):
+            rel += "index.html"
+        if not ctx.site.exists(rel):
+            ctx.fail(
+                "_redirects sends %s to %s, which does not exist. The status "
+                "code is still honoured, so this fails silently and serves the "
+                "platform's generic page instead of yours." % (source, target)
+            )
+
+
 # -------------------------------------------------------------------- legacy
 @rule("legacy.retired_hosts")
 def legacy_retired_hosts(ctx: Ctx) -> None:

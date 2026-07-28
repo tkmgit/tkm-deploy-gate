@@ -115,12 +115,24 @@ def probe(site: str, *, want_md: bool, want_collector: bool,
         )
 
     if want_collector:
-        st, _, _ = fetch(
-            site + "/api/csp-report", method="POST",
-            headers={"Content-Type": "application/csp-report"},
-            data=b'{"csp-report":{"effective-directive":"probe"}}',
+        # Deliberately NOT a POST. On three of these sites the collector now
+        # persists every report to a Netlify Blobs store, so a daily probe
+        # posting a fake violation would inject a junk record a day into the
+        # exact data the store exists to collect. A monitor that corrupts what
+        # it monitors is worse than no monitor.
+        #
+        # A GET proves the same thing with no side effect: the function is
+        # deployed and routed, because only a deployed collector answers 405
+        # with Allow: POST. A missing one answers 404.
+        st, h, _ = fetch(site + "/api/csp-report")
+        r.check(
+            st == 405,
+            "%s/api/csp-report returned %s to a GET, expected 405 from a "
+            "deployed collector (404 means it is not there)" % (site, st),
         )
-        r.check(st == 204, "%s/api/csp-report returned %s, expected 204" % (site, st))
+        if st == 405:
+            r.check("POST" in h.get("allow", ""),
+                    "%s/api/csp-report answered 405 without Allow: POST" % site)
 
     return r
 
