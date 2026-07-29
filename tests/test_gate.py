@@ -201,6 +201,21 @@ class TestVersionIsDeclaredOnce(unittest.TestCase):
             "in the same commit as the tag." % (declared, __version__))
 
 
+class TestForbiddenSameAs(TreeCase):
+    def test_an_org_with_no_sameas_still_counts_as_inspected(self):
+        # Three of six portfolio sites publish organisations that are simply
+        # not cross linked. If only nodes carrying sameAs were counted, the
+        # vacuous pass guard would fire exactly where the rule had nothing to
+        # complain about, and the rule could never be switched on there.
+        trees._edit(self.root, "gate.toml", '[rules."pages.count"]',
+                    trees.SCHEMA_BLOCK + '[rules."pages.count"]')
+        for rel in ("index.html", "about/index.html", "pricing/index.html",
+                    "legal/index.html"):
+            trees._edit(self.root, rel,
+                        ',"sameAs":["https://www.linkedin.com/company/example/"]', "")
+        self.assertNotIn("schema.forbidden_sameas", self.error_rules())
+
+
 class TestPinnedNodes(TreeCase):
     """Referencing a shared node is not the same as contradicting it."""
 

@@ -959,10 +959,17 @@ def schema_forbidden_sameas(ctx: Ctx) -> None:
         for node_types, node in _nodes(ctx, src):
             if not ORG_TYPES.intersection(node_types):
                 continue
+            # Counted before the sameAs check, not after. Looking at an
+            # organisation and finding no sameAs is an inspection: it is the
+            # answer, not the absence of one. Counting only nodes that carry
+            # sameAs made the vacuous pass guard fire on three portfolio sites
+            # whose organisations are simply not cross linked, which would have
+            # meant the rule could never be switched on precisely where it had
+            # nothing to complain about.
+            ctx.seen()
             raw = node.get("sameAs")
             if raw is None:
                 continue
-            ctx.seen()
             for url in (raw if isinstance(raw, list) else [raw]):
                 host = urllib.parse.urlparse(str(url)).netloc.lower()
                 host = host[4:] if host.startswith("www.") else host
