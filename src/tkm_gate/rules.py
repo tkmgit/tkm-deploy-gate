@@ -17,6 +17,7 @@ import hashlib
 import json
 import re
 import urllib.parse
+from html.parser import HTMLParser
 
 RULES: dict[str, callable] = {}
 
@@ -646,7 +647,69 @@ def a11y_img_alt(ctx: Ctx) -> None:
 
 # ----------------------------------------------------------------- landmarks
 RE_BODY = re.compile(r"<body[^>]*>(.*)</body>", re.S | re.I)
-RE_FOCUSABLE = re.compile(r"<(a|button|input|select|textarea)\b([^>]*)>", re.I)
+FOCUSABLE_TAGS = {"a", "button", "input", "select", "textarea"}
+VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+             "meta", "source", "track", "wbr"}
+
+
+class _FirstFocusable(HTMLParser):
+    """The first element a Tab press can actually reach.
+
+    Regex alone answers the wrong question. A Netlify forms blueprint is a
+    `<form hidden>` full of inputs that sits near the top of the body and is
+    not in the tab order at all; reading it as the first focusable element
+    would fail a site that is correct, and a gate that fails correct sites is
+    the one people learn to wave through. So this walks the tree, tracks how
+    deep it is inside anything hidden, and ignores what the browser ignores.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack: list[tuple[str, bool]] = []
+        self.hidden_depth = 0
+        self.found: tuple[str, dict, int] | None = None
+        self._text: list[str] = []
+        self._capture = False
+
+    @staticmethod
+    def _is_hidden(attrs: dict) -> bool:
+        return ("hidden" in attrs
+                or attrs.get("aria-hidden") == "true"
+                or attrs.get("tabindex") == "-1"
+                or attrs.get("type", "").lower() == "hidden")
+
+    def handle_starttag(self, tag, attrs):
+        a = {k.lower(): (v if v is not None else "") for k, v in attrs}
+        hidden = self._is_hidden(a)
+        if self.found is None and not self.hidden_depth and not hidden \
+                and tag.lower() in FOCUSABLE_TAGS:
+            self.found = (tag.lower(), a, self.getpos()[0])
+            self._capture = (tag.lower() == "a")
+            return
+        if tag.lower() in VOID_TAGS:
+            return
+        self.stack.append((tag.lower(), hidden))
+        if hidden:
+            self.hidden_depth += 1
+
+    def handle_endtag(self, tag):
+        if self._capture and tag.lower() == "a":
+            self._capture = False
+        for i in range(len(self.stack) - 1, -1, -1):
+            if self.stack[i][0] == tag.lower():
+                for _, h in self.stack[i:]:
+                    if h:
+                        self.hidden_depth -= 1
+                del self.stack[i:]
+                return
+
+    def handle_data(self, data):
+        if self._capture:
+            self._text.append(data)
+
+    @property
+    def label(self) -> str:
+        return " ".join("".join(self._text).split())
 
 
 def _body(src: str) -> str:
@@ -690,26 +753,24 @@ def a11y_skip_link(ctx: Ctx) -> None:
         if _exempt(ctx, path):
             continue
         ctx.seen()
-        body = _body(src)
-        m = RE_FOCUSABLE.search(body)
-        if not m:
+        parser = _FirstFocusable()
+        parser.feed(_body(src))
+        parser.close()
+        if parser.found is None:
             ctx.fail("%s has no focusable element in the body, so no skip link "
                      "can be first" % path)
             continue
-        tag, attrs = m.group(1).lower(), m.group(2)
-        rest = body[m.end():]
-        close = re.search(r"</a>", rest, re.I)
-        label = re.sub(r"<[^>]*>", " ", rest[: close.start()] if close else rest[:120])
-        href = re.search(r'href="([^"]*)"', attrs)
-        if tag != "a" or not href or not href.group(1).startswith("#") \
-                or not pattern.search(label + " " + attrs):
+        tag, attrs, _line = parser.found
+        href = attrs.get("href", "")
+        haystack = parser.label + " " + " ".join("%s=%s" % kv for kv in attrs.items())
+        if tag != "a" or not href.startswith("#") or not pattern.search(haystack):
             ctx.fail(
                 "%s: the first focusable element is <%s>, not a skip link. A "
                 "skip link placed after the navigation is not a skip link."
                 % (path, tag)
             )
             continue
-        target = href.group(1)[1:]
+        target = href[1:]
         if target and ('id="%s"' % target) not in src:
             ctx.fail("%s has a skip link to #%s and no element carries that id"
                      % (path, target))

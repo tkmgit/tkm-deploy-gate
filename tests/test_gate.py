@@ -182,6 +182,36 @@ class TestMdLayer(TreeCase):
         self.assertNotIn("md.alternate_link", self.error_rules())
 
 
+class TestSkipLink(TreeCase):
+    """What the browser ignores, the rule must ignore.
+
+    A gate that fails a correct site is the one people learn to wave through,
+    and a waved-through gate is worse than no gate.
+    """
+
+    def test_a_hidden_form_blueprint_is_not_the_first_focusable_element(self):
+        # Netlify's forms blueprint is a <form hidden> full of inputs sitting
+        # near the top of the body. It is not in the tab order.
+        trees._edit(self.root, "index.html", '<a class="skip-link"',
+                    '<form hidden name="contact">'
+                    '<input type="text" name="name" /></form>'
+                    '<a class="skip-link"')
+        self.assertNotIn("a11y.skip_link", self.error_rules())
+
+    def test_but_a_visible_control_before_it_still_fails(self):
+        trees._edit(self.root, "index.html", '<a class="skip-link"',
+                    '<button type="button">Menu</button><a class="skip-link"')
+        self.assertIn("a11y.skip_link", self.error_rules())
+
+    def test_a_spanish_label_passes_on_the_class_name(self):
+        # The default text pattern is English. A site does not translate its
+        # markup class names, so the class carries the signal when the visible
+        # label is in another language.
+        trees._edit(self.root, "index.html", ">Skip to main content<",
+                    ">Saltar al contenido principal<")
+        self.assertNotIn("a11y.skip_link", self.error_rules())
+
+
 class TestRouteConvention(TreeCase):
     """A site that publishes /about and one that publishes /about/ are both
     internally consistent. The engine must not pick for them."""
