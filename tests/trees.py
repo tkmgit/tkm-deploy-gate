@@ -39,8 +39,16 @@ def sha256(body: str) -> str:
 def page(route: str, title: str, *, jsonld: str | None = None,
          md: str | None = None, extra_head: str = "", body: str = "",
          desc: str = DESC) -> str:
+    # An Organization and a Person with stable ids, because the schema rules
+    # need a real graph to inspect and a fixture that only has a WebPage would
+    # let them pass by finding nothing.
     jsonld = jsonld if jsonld is not None else (
-        '{"@context":"https://schema.org","@type":"WebPage","name":"%s"}' % title
+        '{"@context":"https://schema.org","@graph":['
+        '{"@type":"WebPage","name":"%s"},'
+        '{"@type":"Organization","@id":"https://example.com/#org",'
+        '"name":"Example","sameAs":["https://www.linkedin.com/company/example/"]},'
+        '{"@type":"Person","@id":"https://person.example/#owner","name":"A Person",'
+        '"sameAs":["https://www.linkedin.com/in/aperson/"]}]}' % title
     )
     md_link = ""
     if md:
@@ -259,6 +267,26 @@ BREAKS: dict[str, tuple[str, str, callable]] = {
         _edit(r, "llms.txt", "Packages from 250 EUR.",
               "Packages from 250 EUR. Operated by A. Person (X1234567Z)."),
     )),
+    "org_without_an_id": ("schema.entity_ids", "error", lambda r: (
+        _edit(r, "gate.toml", '[rules."pages.count"]', SCHEMA_BLOCK + '[rules."pages.count"]'),
+        _edit(r, "about/index.html", '"@id":"https://example.com/#org",', ""),
+    )),
+    "pinned_node_disagrees": ("schema.pinned_nodes", "error", lambda r: (
+        _edit(r, "gate.toml", '[rules."pages.count"]', SCHEMA_BLOCK + '[rules."pages.count"]'),
+        _edit(r, "about/index.html", '"https://www.linkedin.com/in/aperson/"',
+              '"https://elsewhere.example/aperson"'),
+    )),
+    "pinned_node_is_gone": ("schema.pinned_nodes", "error", lambda r: (
+        _edit(r, "gate.toml", '[rules."pages.count"]',
+              SCHEMA_BLOCK.replace('id = "https://person.example/#owner"',
+                                   'id = "https://person.example/#retired"')
+              + '[rules."pages.count"]'),
+    )),
+    "sibling_brand_claimed_as_same_entity": ("schema.forbidden_sameas", "error", lambda r: (
+        _edit(r, "gate.toml", '[rules."pages.count"]', SCHEMA_BLOCK + '[rules."pages.count"]'),
+        _edit(r, "about/index.html", '"https://www.linkedin.com/company/example/"',
+              '"https://sibling.example/"'),
+    )),
     "forbidden_allow_entry_is_stale": ("content.forbidden_patterns", "error", lambda r: (
         _edit(r, "gate.toml", '[rules."pages.count"]',
               FORBIDDEN_BLOCK.replace('allow = ["legal/index.html"]',
@@ -266,6 +294,21 @@ BREAKS: dict[str, tuple[str, str, callable]] = {
               + '[rules."pages.count"]'),
     )),
 }
+
+SCHEMA_BLOCK = '''[rules."schema.entity_ids"]
+enabled = true
+
+[rules."schema.forbidden_sameas"]
+enabled = true
+hosts = ["sibling.example"]
+
+[rules."schema.pinned_nodes"]
+enabled = true
+[[rules."schema.pinned_nodes".node]]
+id = "https://person.example/#owner"
+same_as = ["https://www.linkedin.com/in/aperson/"]
+
+'''
 
 # The legal page carries the identifier on purpose: a statutory disclosure is
 # exactly the case the allow list exists for, and a rule that cannot express it

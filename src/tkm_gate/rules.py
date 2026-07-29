@@ -840,3 +840,133 @@ def content_forbidden_patterns(ctx: Ctx) -> None:
             ctx.fail("allow entry %r matches no file. An exemption for a page "
                      "that no longer exists silently widens on the next rename."
                      % pat)
+
+
+# --------------------------------------------------------------------- schema
+ORG_TYPES = {"Organization", "LocalBusiness", "ProfessionalService",
+             "Corporation", "NGO", "EducationalOrganization"}
+
+
+def _nodes(ctx: Ctx, src: str):
+    """Every typed node in every JSON-LD block, however deeply nested."""
+    def walk(node):
+        if isinstance(node, dict):
+            t = node.get("@type")
+            types = t if isinstance(t, list) else [t] if t else []
+            if types:
+                yield [str(x) for x in types], node
+            for v in node.values():
+                yield from walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                yield from walk(v)
+
+    for block in ctx.site.jsonld_blocks(src):
+        try:
+            data = json.loads(block)
+        except (ValueError, TypeError):
+            continue          # schema.jsonld_parses owns that finding
+        yield from walk(data)
+
+
+@rule("schema.entity_ids")
+def schema_entity_ids(ctx: Ctx) -> None:
+    """Organisation and Person nodes carry a stable @id.
+
+    A node without an @id cannot be referred to, merged or corrected. It is a
+    description that happens to sit on a page rather than a claim about a thing
+    that exists, and two pages describing the same company without ids describe
+    two companies as far as a consumer is concerned.
+    """
+    types = set(ctx.opt("types", sorted(ORG_TYPES | {"Person"})))
+    for path, src in ctx.site.pages.items():
+        if any(fnmatch.fnmatch(path, pat) for pat in ctx.opt("exempt", [])):
+            continue
+        for node_types, node in _nodes(ctx, src):
+            if not types.intersection(node_types):
+                continue
+            ctx.seen()
+            if not str(node.get("@id", "")).strip():
+                ctx.fail("%s declares a %s node with no @id (name %r)"
+                         % (path, "/".join(node_types), node.get("name", "")))
+
+
+@rule("schema.pinned_nodes")
+def schema_pinned_nodes(ctx: Ctx) -> None:
+    """A shared node says the same thing on every site that repeats it.
+
+    Referring to a node by @id alone is correct and is not what this checks.
+    The failure it catches is a site that repeats the node AND gives it a
+    different sameAs set, because then the portfolio asserts two different
+    truths about one identifier and a consumer merging them gets neither.
+
+    Configure the canonical set once per shared node. A node that carries no
+    sameAs on a given page is a reference, not a contradiction, and passes.
+    """
+    pins = ctx.opt("node", [])
+    if not pins:
+        ctx.fail("schema.pinned_nodes is enabled with no node declared. A pin "
+                 "table with nothing in it inspects everything and objects to "
+                 "nothing, which looks like oversight and is not.")
+        return
+    expected = {}
+    for entry in pins:
+        node_id = str(entry.get("id", "")).strip()
+        if not node_id:
+            ctx.fail("a schema.pinned_nodes entry has no id"); return
+        expected[node_id] = sorted(str(x) for x in entry.get("same_as", []))
+
+    found = set()
+    for path, src in ctx.site.pages.items():
+        for _types, node in _nodes(ctx, src):
+            node_id = str(node.get("@id", "")).strip()
+            if node_id not in expected:
+                continue
+            found.add(node_id)
+            raw = node.get("sameAs")
+            if raw is None:
+                continue          # a reference, not a second claim
+            ctx.seen()
+            actual = sorted(str(x) for x in (raw if isinstance(raw, list) else [raw]))
+            if actual != expected[node_id]:
+                missing = [x for x in expected[node_id] if x not in actual]
+                extra = [x for x in actual if x not in expected[node_id]]
+                ctx.fail("%s repeats %s with a different sameAs set. missing=%s "
+                         "extra=%s. Change the pin and every site together, or "
+                         "reference the node by @id and do not repeat sameAs."
+                         % (path, node_id, missing, extra))
+
+    for node_id in expected:
+        if node_id not in found:
+            ctx.fail("pinned node %s appears nowhere on this site. A pin for a "
+                     "node that is no longer referenced stops protecting "
+                     "anything the moment it is forgotten." % node_id)
+
+
+@rule("schema.forbidden_sameas")
+def schema_forbidden_sameas(ctx: Ctx) -> None:
+    """Hosts that must never appear in an organisation's sameAs.
+
+    Two sibling companies claiming each other as the same entity is not a
+    stronger signal, it is a false one. Where a real relationship exists it
+    belongs on the node that actually holds it, such as a shared founder.
+    """
+    hosts = [str(h).lower() for h in ctx.opt("hosts", [])]
+    if not hosts:
+        ctx.fail("schema.forbidden_sameas is enabled with no hosts declared.")
+        return
+    for path, src in ctx.site.pages.items():
+        for node_types, node in _nodes(ctx, src):
+            if not ORG_TYPES.intersection(node_types):
+                continue
+            raw = node.get("sameAs")
+            if raw is None:
+                continue
+            ctx.seen()
+            for url in (raw if isinstance(raw, list) else [raw]):
+                host = urllib.parse.urlparse(str(url)).netloc.lower()
+                host = host[4:] if host.startswith("www.") else host
+                if host in hosts:
+                    ctx.fail("%s lists %s in the sameAs of %s. A sibling brand "
+                             "is not the same entity."
+                             % (path, host, node.get("@id") or "/".join(node_types)))

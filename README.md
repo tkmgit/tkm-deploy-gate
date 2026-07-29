@@ -97,6 +97,27 @@ shape, not by literal value, and list the pages that are *required* to match
 under `allow`. An `allow` entry that matches no file is an error, because an
 exemption for a page that no longer exists silently widens on the next rename.
 
+## Entity rules
+
+`schema.entity_ids` requires an `@id` on organisation and person nodes. A node
+without one cannot be referred to, merged or corrected: it is a description
+that happens to sit on a page rather than a claim about a thing that exists.
+
+`schema.pinned_nodes` guards a node that several sites share. Referring to it
+by `@id` alone is correct and passes. What fails is a site that repeats the
+node **and** gives it a different `sameAs` set, because then the portfolio
+asserts two truths about one identifier and a consumer merging them gets
+neither. A pin whose node appears nowhere on the site is also an error: a pin
+for something no longer referenced stops protecting anything the moment it is
+forgotten.
+
+`schema.forbidden_sameas` names hosts that must never appear in an
+organisation's `sameAs`. Two sibling brands claiming each other is not a
+stronger signal, it is a false one. Where a real relationship exists it belongs
+on the node that holds it, such as a shared founder.
+
+All three ship OFF. The engine holds no entity truth; the site does.
+
 ## Severity
 
 `error` blocks the deploy. `warn` prints and does not block.

@@ -182,6 +182,44 @@ class TestMdLayer(TreeCase):
         self.assertNotIn("md.alternate_link", self.error_rules())
 
 
+class TestVersionIsDeclaredOnce(unittest.TestCase):
+    """The engine printed 1.7.0 while running 1.8.1 for two whole tags.
+
+    Not because anyone was careless, but because the version lived in two files
+    and nothing compared them. A published version string is part of the
+    artifact: it is what a log, a bug report and a rollback all read.
+    """
+
+    def test_pyproject_agrees_with_the_package(self):
+        import tomllib
+        from tkm_gate import __version__
+        root = Path(__file__).resolve().parent.parent
+        declared = tomllib.load(open(root / "pyproject.toml", "rb"))["project"]["version"]
+        self.assertEqual(
+            declared, __version__,
+            "pyproject.toml says %s and tkm_gate.__version__ says %s. Bump both "
+            "in the same commit as the tag." % (declared, __version__))
+
+
+class TestPinnedNodes(TreeCase):
+    """Referencing a shared node is not the same as contradicting it."""
+
+    def test_a_page_that_references_by_id_without_sameas_is_not_a_finding(self):
+        trees._edit(self.root, "gate.toml", '[rules."pages.count"]',
+                    trees.SCHEMA_BLOCK + '[rules."pages.count"]')
+        trees._edit(self.root, "about/index.html",
+                    ',"sameAs":["https://www.linkedin.com/in/aperson/"]', "")
+        self.assertNotIn("schema.pinned_nodes", self.error_rules())
+
+    def test_but_repeating_it_with_a_different_set_is(self):
+        trees._edit(self.root, "gate.toml", '[rules."pages.count"]',
+                    trees.SCHEMA_BLOCK + '[rules."pages.count"]')
+        trees._edit(self.root, "about/index.html",
+                    '"https://www.linkedin.com/in/aperson/"',
+                    '"https://www.linkedin.com/in/aperson/","https://x.example/a"')
+        self.assertIn("schema.pinned_nodes", self.error_rules())
+
+
 class TestSkipLink(TreeCase):
     """What the browser ignores, the rule must ignore.
 

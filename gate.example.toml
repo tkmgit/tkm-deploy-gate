@@ -138,3 +138,23 @@ files = ["llms.txt", "llms-full.txt", "md/**/*.md"]  # scanned on top of every H
 allow = []                             # path globs that are REQUIRED to match,
                                        # such as a statutory legal notice. An
                                        # allow entry matching no file is an error.
+
+# ------------------------------------------------------------------- schema
+[rules."schema.entity_ids"]            # default: error, OFF
+enabled = false
+types = ["Organization", "LocalBusiness", "ProfessionalService",
+         "Corporation", "Person"]
+exempt = []
+
+# A shared node must say the same thing wherever it is repeated. Referring to
+# it by @id alone is correct and is not a finding; repeating it with a
+# different sameAs set is.
+[rules."schema.pinned_nodes"]          # default: error, OFF
+enabled = false
+# [[rules."schema.pinned_nodes".node]]
+# id = "https://example.com/#founder"
+# same_as = ["https://www.linkedin.com/in/example/"]
+
+[rules."schema.forbidden_sameas"]      # default: error, OFF
+enabled = false
+hosts = []                             # sibling brands are not the same entity

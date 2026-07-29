@@ -49,6 +49,9 @@ DEFAULTS: dict[str, tuple[Severity, int, bool]] = {
     "a11y.main_landmark":             (Severity.ERROR, 1, True),
     "a11y.skip_link":                 (Severity.ERROR, 1, True),
     "content.forbidden_patterns":     (Severity.ERROR, 1, False),
+    "schema.entity_ids":              (Severity.ERROR, 1, False),
+    "schema.pinned_nodes":            (Severity.ERROR, 1, False),
+    "schema.forbidden_sameas":        (Severity.ERROR, 1, False),
 }
 
 
