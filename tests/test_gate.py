@@ -226,6 +226,20 @@ class TestPinnedNodes(TreeCase):
                     ',"sameAs":["https://www.linkedin.com/in/aperson/"]', "")
         self.assertNotIn("schema.pinned_nodes", self.error_rules())
 
+    def test_a_site_that_never_repeats_the_node_is_not_a_vacuous_pass(self):
+        # couplephotographers.com references the shared founder by @id on every
+        # page and repeats sameAs nowhere, which is the pattern this rule wants.
+        # Counting only repeats refused it, so the rule punished exactly the
+        # behaviour it exists to encourage.
+        trees._edit(self.root, "gate.toml", '[rules."pages.count"]',
+                    trees.SCHEMA_BLOCK + '[rules."pages.count"]')
+        for rel in ("index.html", "about/index.html", "pricing/index.html",
+                    "legal/index.html"):
+            trees._edit(self.root, rel,
+                        ',"sameAs":["https://www.linkedin.com/in/aperson/"]', "")
+        self.assertNotIn("engine.vacuous_pass", self.error_rules())
+        self.assertNotIn("schema.pinned_nodes", self.error_rules())
+
     def test_but_repeating_it_with_a_different_set_is(self):
         trees._edit(self.root, "gate.toml", '[rules."pages.count"]',
                     trees.SCHEMA_BLOCK + '[rules."pages.count"]')

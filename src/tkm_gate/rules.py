@@ -923,10 +923,16 @@ def schema_pinned_nodes(ctx: Ctx) -> None:
             if node_id not in expected:
                 continue
             found.add(node_id)
+            # Counted before the sameAs check, for the same reason as in
+            # schema.forbidden_sameas: finding a pure @id reference IS the
+            # inspection, and it is the pattern this rule wants sites to use.
+            # Counting only repeats made the vacuous pass guard refuse a site
+            # that never repeats the node, which is to say the rule punished
+            # exactly the behaviour it exists to encourage.
+            ctx.seen()
             raw = node.get("sameAs")
             if raw is None:
                 continue          # a reference, not a second claim
-            ctx.seen()
             actual = sorted(str(x) for x in (raw if isinstance(raw, list) else [raw]))
             if actual != expected[node_id]:
                 missing = [x for x in expected[node_id] if x not in actual]
