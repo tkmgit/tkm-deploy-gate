@@ -81,6 +81,22 @@ Each `[rules."<id>"]` table accepts `severity` (`error`, `warn`, `off`),
 An unknown rule id is a fatal configuration error, not a warning. A typo that
 silently disables a rule is the same failure as not having the rule.
 
+## Accessibility and forbidden content
+
+`a11y.main_landmark` and `a11y.skip_link` are two halves of one thing: a skip
+link with nothing to point at helps nobody, and a main landmark nobody can
+reach helps nobody either. The skip link rule reads the **first focusable
+element in the body** rather than searching the page, because a skip link
+placed after the navigation is not a skip link.
+
+`content.forbidden_patterns` is off until a site declares its own patterns. The
+engine ships none. It exists for the case that produced it: a national identity
+number belonged on a statutory legal notice, and a bulk markdown rendition
+republished it on the home page where nothing required it. Declare patterns by
+shape, not by literal value, and list the pages that are *required* to match
+under `allow`. An `allow` entry that matches no file is an error, because an
+exemption for a page that no longer exists silently widens on the next rename.
+
 ## Severity
 
 `error` blocks the deploy. `warn` prints and does not block.

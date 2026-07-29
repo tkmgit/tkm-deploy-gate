@@ -117,3 +117,24 @@ extra_files = ["llms.txt"]
 # --------------------------------------------------------------------- a11y
 [rules."a11y.img_alt"]                 # default: warn, on
 severity = "warn"                      # error on generated output
+
+[rules."a11y.main_landmark"]           # default: error, on
+exempt = []                            # path globs, for a template that
+                                       # genuinely has no single main region
+
+[rules."a11y.skip_link"]               # default: error, on
+text_pattern = "skip"                  # matched against the link text and its
+                                       # attributes, case insensitive
+exempt = []
+
+# ------------------------------------------------------------------ content
+# Values that must not be published outside the pages required to carry them.
+# Configure by SHAPE, never by literal value: a report line names the pattern
+# that matched, and this engine repository is public.
+[rules."content.forbidden_patterns"]   # default: error, OFF
+enabled = false
+patterns = []                          # e.g. ["[XYZ]\\d{7}[A-Z]"] for a NIE
+files = ["llms.txt", "llms-full.txt", "md/**/*.md"]  # scanned on top of every HTML page
+allow = []                             # path globs that are REQUIRED to match,
+                                       # such as a statutory legal notice. An
+                                       # allow entry matching no file is an error.

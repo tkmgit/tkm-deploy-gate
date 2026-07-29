@@ -101,7 +101,8 @@ class TestVacuousPassGuard(TreeCase):
     def test_rule_that_matches_nothing_is_an_error(self):
         # md.alternate_link requires at least one match. Remove every page it
         # could inspect and the rule would otherwise pass forever.
-        for rel in ("index.html", "about/index.html", "pricing/index.html"):
+        for rel in ("index.html", "about/index.html", "pricing/index.html",
+                    "legal/index.html"):
             (self.root / rel).unlink()
         rules = self.error_rules()
         self.assertIn("engine.vacuous_pass", rules)
@@ -186,11 +187,11 @@ class TestRouteConvention(TreeCase):
     internally consistent. The engine must not pick for them."""
 
     def _switch_to_no_trailing_slash(self):
-        for rel in ("about/index.html", "pricing/index.html"):
+        for rel in ("about/index.html", "pricing/index.html", "legal/index.html"):
             trees._edit(self.root, rel, '%s/%s/"' % (trees.SITE, rel.split("/")[0]),
                         '%s/%s"' % (trees.SITE, rel.split("/")[0]))
         sm = (self.root / "sitemap.xml").read_text(encoding="utf-8")
-        for slug in ("about", "pricing"):
+        for slug in ("about", "pricing", "legal"):
             sm = sm.replace("%s/%s/</loc>" % (trees.SITE, slug),
                             "%s/%s</loc>" % (trees.SITE, slug))
         (self.root / "sitemap.xml").write_text(sm, encoding="utf-8")

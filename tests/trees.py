@@ -60,9 +60,12 @@ def page(route: str, title: str, *, jsonld: str | None = None,
 <script type="application/ld+json">{jsonld}</script>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
 <h1>{title}</h1>
 <img src="/img/hero.png" alt="A hero image" />
 {body}
+</main>
 <script>{INLINE_JS}</script>
 </body>
 </html>
@@ -73,6 +76,11 @@ ROUTES = {
     "index.html": ("/", "Home"),
     "about/index.html": ("/about/", "About"),
     "pricing/index.html": ("/pricing/", "Pricing"),
+    # A statutory disclosure page. It carries an identifier on purpose, so the
+    # allow list of content.forbidden_patterns has a real case to express: a
+    # rule that could not exempt this would push a site into deleting text the
+    # law requires it to publish.
+    "legal/index.html": ("/legal/", "Legal"),
 }
 
 
@@ -86,6 +94,8 @@ def build_good(root: Path) -> Path:
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         body = "<p>From 250 EUR.</p>" if rel.startswith("pricing") else ""
+        if rel.startswith("legal"):
+            body = "<p>Operated by A. Person, identifier X1234567Z.</p>"
         p.write_text(page(route, title, md=SITE + "/md/" + title.lower() + ".md",
                           body=body), encoding="utf-8")
         (root / "md" / (title.lower() + ".md")).write_text(
@@ -150,7 +160,7 @@ url  = "{SITE}"
 root = "."
 
 [rules."pages.count"]
-min_pages = 4
+min_pages = 5
 
 [rules."csp.style_hashes"]
 enabled = true
@@ -227,4 +237,43 @@ BREAKS: dict[str, tuple[str, str, callable]] = {
     "missing_alt": ("a11y.img_alt", "warn", lambda r: _edit(
         r, "index.html", '<img src="/img/hero.png" alt="A hero image" />',
         '<img src="/img/hero.png" />')),
+    "no_main_landmark": ("a11y.main_landmark", "error", lambda r: (
+        _edit(r, "about/index.html", '<main id="main-content">', "<div>"),
+        _edit(r, "about/index.html", "</main>", "</div>"),
+    )),
+    "two_main_landmarks": ("a11y.main_landmark", "error", lambda r: _edit(
+        r, "index.html", "<h1>Home</h1>", "<h1>Home</h1><main>second</main>")),
+    "no_skip_link": ("a11y.skip_link", "error", lambda r: _edit(
+        r, "about/index.html",
+        '<a class="skip-link" href="#main-content">Skip to main content</a>', "")),
+    "skip_link_after_the_nav": ("a11y.skip_link", "error", lambda r: _edit(
+        r, "about/index.html",
+        '<a class="skip-link" href="#main-content">Skip to main content</a>',
+        '<nav><a href="/">Home</a></nav>'
+        '<a class="skip-link" href="#main-content">Skip to main content</a>')),
+    "skip_link_target_missing": ("a11y.skip_link", "error", lambda r: _edit(
+        r, "about/index.html", '<main id="main-content">', "<main>")),
+    "forbidden_pattern_published": ("content.forbidden_patterns", "error", lambda r: (
+        _edit(r, "gate.toml", '[rules."pages.count"]',
+              FORBIDDEN_BLOCK + '[rules."pages.count"]'),
+        _edit(r, "llms.txt", "Packages from 250 EUR.",
+              "Packages from 250 EUR. Operated by A. Person (X1234567Z)."),
+    )),
+    "forbidden_allow_entry_is_stale": ("content.forbidden_patterns", "error", lambda r: (
+        _edit(r, "gate.toml", '[rules."pages.count"]',
+              FORBIDDEN_BLOCK.replace('allow = ["legal/index.html"]',
+                                      'allow = ["legal/index.html", "gone/index.html"]')
+              + '[rules."pages.count"]'),
+    )),
 }
+
+# The legal page carries the identifier on purpose: a statutory disclosure is
+# exactly the case the allow list exists for, and a rule that cannot express it
+# would push a site into deleting text the law requires.
+FORBIDDEN_BLOCK = '''[rules."content.forbidden_patterns"]
+enabled = true
+patterns = ["[XYZ]\\\\d{7}[A-Z]"]
+files = ["llms.txt", "md/*.md"]
+allow = ["legal/index.html"]
+
+'''

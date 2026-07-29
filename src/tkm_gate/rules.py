@@ -642,3 +642,140 @@ def a11y_img_alt(ctx: Ctx) -> None:
             ctx.seen()
             if 'alt="' not in m.group(1):
                 ctx.fail("%s has an img with no alt attribute" % path)
+
+
+# ----------------------------------------------------------------- landmarks
+RE_BODY = re.compile(r"<body[^>]*>(.*)</body>", re.S | re.I)
+RE_FOCUSABLE = re.compile(r"<(a|button|input|select|textarea)\b([^>]*)>", re.I)
+
+
+def _body(src: str) -> str:
+    m = RE_BODY.search(src)
+    return m.group(1) if m else src
+
+
+def _exempt(ctx: Ctx, path: str) -> bool:
+    return any(fnmatch.fnmatch(path, pat) for pat in ctx.opt("exempt", []))
+
+
+@rule("a11y.main_landmark")
+def a11y_main_landmark(ctx: Ctx) -> None:
+    """Exactly one main landmark on every indexable page.
+
+    Not a style preference. Without it a screen reader has no way to jump past
+    the repeated header, and a skip link has nothing to point at, so this rule
+    and a11y.skip_link are two halves of one thing.
+    """
+    for path, src in ctx.site.indexable.items():
+        if _exempt(ctx, path):
+            continue
+        ctx.seen()
+        n = len(re.findall(r"<main[\s>]", src))
+        if n != 1:
+            ctx.fail("%s has %d main landmark(s), expected exactly 1" % (path, n))
+
+
+@rule("a11y.skip_link")
+def a11y_skip_link(ctx: Ctx) -> None:
+    """The first focusable element is a skip link that resolves.
+
+    Checking only that a skip link exists somewhere would pass a link placed
+    after the navigation, which helps nobody: the whole point is that the first
+    Tab reaches it. So the rule reads the first focusable element in the body
+    and requires that to be the skip link, and requires its fragment to name an
+    id that actually exists on the page.
+    """
+    pattern = re.compile(str(ctx.opt("text_pattern", r"skip")), re.I)
+    for path, src in ctx.site.indexable.items():
+        if _exempt(ctx, path):
+            continue
+        ctx.seen()
+        body = _body(src)
+        m = RE_FOCUSABLE.search(body)
+        if not m:
+            ctx.fail("%s has no focusable element in the body, so no skip link "
+                     "can be first" % path)
+            continue
+        tag, attrs = m.group(1).lower(), m.group(2)
+        rest = body[m.end():]
+        close = re.search(r"</a>", rest, re.I)
+        label = re.sub(r"<[^>]*>", " ", rest[: close.start()] if close else rest[:120])
+        href = re.search(r'href="([^"]*)"', attrs)
+        if tag != "a" or not href or not href.group(1).startswith("#") \
+                or not pattern.search(label + " " + attrs):
+            ctx.fail(
+                "%s: the first focusable element is <%s>, not a skip link. A "
+                "skip link placed after the navigation is not a skip link."
+                % (path, tag)
+            )
+            continue
+        target = href.group(1)[1:]
+        if target and ('id="%s"' % target) not in src:
+            ctx.fail("%s has a skip link to #%s and no element carries that id"
+                     % (path, target))
+
+
+# ------------------------------------------------------------------- content
+@rule("content.forbidden_patterns")
+def content_forbidden_patterns(ctx: Ctx) -> None:
+    """Values that must not appear outside the pages that are required to carry
+    them.
+
+    Written for the case that produced it: a national identity number belongs
+    on a statutory legal notice and nowhere else, yet a bulk machine readable
+    rendition quietly republished it on the home page. The engine holds no
+    patterns of its own. A site declares its own, and declares which paths are
+    allowed to match, because only the site knows which of its pages is a legal
+    disclosure.
+
+    Configure patterns by shape, not by literal value. This repository is
+    public and a report line names the pattern that matched, never the text.
+    """
+    raw = ctx.opt("patterns", [])
+    if not raw:
+        ctx.fail("content.forbidden_patterns is enabled with no patterns. An "
+                 "empty pattern set inspects everything and objects to nothing, "
+                 "which looks like oversight and is not.")
+        return
+    compiled = []
+    for p in raw:
+        try:
+            compiled.append((str(p), re.compile(str(p))))
+        except re.error as exc:
+            ctx.fail("pattern %r does not compile: %s" % (p, exc))
+            return
+
+    allow = [str(a) for a in ctx.opt("allow", [])]
+    files: dict[str, str] = dict(ctx.site.pages)
+    for glob in ctx.opt("files", []):
+        for p in sorted(ctx.site.root.glob(str(glob))):
+            if not p.is_file():
+                continue
+            rel = p.relative_to(ctx.site.root).as_posix()
+            if any(part in {".git", "node_modules", ".netlify"} for part in rel.split("/")):
+                continue
+            try:
+                files[rel] = p.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+
+    matched_allowed = 0
+    for path, src in sorted(files.items()):
+        if any(fnmatch.fnmatch(path, pat) for pat in allow):
+            if any(rx.search(src) for _, rx in compiled):
+                matched_allowed += 1
+            continue
+        ctx.seen()
+        for label, rx in compiled:
+            if rx.search(src):
+                ctx.fail(
+                    "%s matches forbidden pattern %s. If this file is a "
+                    "required legal disclosure add it to allow; otherwise the "
+                    "value must not be published here." % (path, label)
+                )
+
+    for pat in allow:
+        if not any(fnmatch.fnmatch(path, pat) for path in files):
+            ctx.fail("allow entry %r matches no file. An exemption for a page "
+                     "that no longer exists silently widens on the next rename."
+                     % pat)

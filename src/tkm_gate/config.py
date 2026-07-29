@@ -46,6 +46,9 @@ DEFAULTS: dict[str, tuple[Severity, int, bool]] = {
     "legacy.retired_hosts":           (Severity.ERROR, 1, False),
     "prices.quoted_in_price_list":    (Severity.ERROR, 1, False),
     "a11y.img_alt":                   (Severity.WARN,  1, True),
+    "a11y.main_landmark":             (Severity.ERROR, 1, True),
+    "a11y.skip_link":                 (Severity.ERROR, 1, True),
+    "content.forbidden_patterns":     (Severity.ERROR, 1, False),
 }
 
 
