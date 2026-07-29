@@ -52,6 +52,7 @@ DEFAULTS: dict[str, tuple[Severity, int, bool]] = {
     "schema.entity_ids":              (Severity.ERROR, 1, False),
     "schema.pinned_nodes":            (Severity.ERROR, 1, False),
     "schema.forbidden_sameas":        (Severity.ERROR, 1, False),
+    "md.fact_parity":                 (Severity.WARN,  1, False),
 }
 
 

@@ -118,6 +118,23 @@ on the node that holds it, such as a shared founder.
 
 All three ship OFF. The engine holds no entity truth; the site does.
 
+## Rendition parity
+
+`md.fact_parity` compares a page with the markdown rendition it advertises. It
+exists because the same failure was found twice in one portfolio pointing both
+ways: a rendition published a national identity number the page never showed,
+and three renditions quoted a price a visitor to the same URL could not see.
+Both passed every check that existed, because the gate only ever asked whether
+a rendition was present.
+
+It compares facts, never prose. Two calibrations were learned by measuring six
+real sites before it shipped: a quantity matches on its number alone, because a
+page routinely prints `320` in one element and its currency in another, and a
+contact detail matches against raw HTML, because an address inside a `mailto`
+href is genuinely offered even though stripping tags hides it.
+
+Ships as a warning and OFF.
+
 ## Severity
 
 `error` blocks the deploy. `warn` prints and does not block.

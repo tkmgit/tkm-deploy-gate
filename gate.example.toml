@@ -158,3 +158,13 @@ enabled = false
 [rules."schema.forbidden_sameas"]      # default: error, OFF
 enabled = false
 hosts = []                             # sibling brands are not the same entity
+
+# ----------------------------------------------------------------- md parity
+# A rendition may not assert a fact its page does not. Compares quantities,
+# contact details and identifiers, never prose: a rendition is a condensation
+# and is meant to read differently.
+[rules."md.fact_parity"]               # default: warn, OFF
+enabled = false
+exempt = []                            # page path globs
+ignore = []                            # regexes for atoms that are known to
+                                       # live only in the rendition

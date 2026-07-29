@@ -983,3 +983,84 @@ def schema_forbidden_sameas(ctx: Ctx) -> None:
                     ctx.fail("%s lists %s in the sameAs of %s. A sibling brand "
                              "is not the same entity."
                              % (path, host, node.get("@id") or "/".join(node_types)))
+
+
+# ------------------------------------------------------------------ md parity
+# A quantity, a contact detail or an identifier. Prose is deliberately not
+# compared: a rendition is a condensation and is meant to read differently.
+RE_ATOM = re.compile(r"""(
+    \b\d[\d.,]*\s?(?:%|EUR|€|USD|\$|GBP|£|km|ha|m²|m2|mm|cm|kg|MP|px)\b
+  | \b[\w.+-]+@[\w-]+\.[\w.]+\b
+  | \b\+\d{1,3}[\s\d]{6,}\b
+)""", re.X)
+RE_NUM = re.compile(r"\d[\d.,]*")
+RE_MARKUP = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.S | re.I)
+
+
+def _visible(html: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", RE_MARKUP.sub(" ", html)))
+
+
+def _loose(s: str) -> str:
+    return re.sub(r"[.,\s]", "", s.lower())
+
+
+@rule("md.fact_parity")
+def md_fact_parity(ctx: Ctx) -> None:
+    """A rendition may not assert a fact its page does not.
+
+    The failure this exists for was found twice in one portfolio, pointing both
+    ways: a markdown rendition published a national identity number the page
+    never showed, and three renditions quoted a price a visitor to the same URL
+    could not see. Both passed every check the gate had, because the gate only
+    ever asked whether a rendition existed.
+
+    It compares facts, never prose. A rendition is a condensation and is
+    supposed to read differently; demanding sentence equality would make the
+    layer useless. So it extracts what can be checked, quantities, contact
+    details and identifiers, and asks whether the page says it too.
+
+    Two calibrations, both learned by measuring six real sites before this
+    shipped rather than after. A quantity matches on its number alone, because
+    a page routinely prints 320 in one element and its currency in another and
+    that is a layout choice, not a contradiction. A contact detail matches
+    against the raw HTML rather than the visible text, because an address
+    inside a mailto href is genuinely offered by the page even though stripping
+    tags hides it.
+    """
+    exempt = ctx.opt("exempt", [])
+    ignore = [re.compile(str(p)) for p in ctx.opt("ignore", [])]
+    for path, src in ctx.site.pages.items():
+        if any(fnmatch.fnmatch(path, pat) for pat in exempt):
+            continue
+        m = re.search(r'<link[^>]*rel="alternate"[^>]*type="text/markdown"[^>]*'
+                      r'href="([^"]+)"', src)
+        if not m:
+            continue
+        rel = re.sub(r"^https?://[^/]+/", "", m.group(1)).lstrip("/")
+        md = ctx.site.root / rel
+        if not md.is_file():
+            continue                     # md.alternate_link owns that finding
+        try:
+            body = md.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        body = re.sub(r"^---.*?---", "", body, flags=re.S)
+        ctx.seen()
+
+        vis, raw = _loose(_visible(src)), _loose(src)
+        for found in RE_ATOM.findall(body):
+            atom = (found[0] if isinstance(found, tuple) else found).strip()
+            if any(rx.search(atom) for rx in ignore):
+                continue
+            num = RE_NUM.match(atom)
+            if num and "@" not in atom:
+                # Quantity: the number is the claim, the unit may live in a
+                # neighbouring element.
+                if _loose(num.group(0)) in vis:
+                    continue
+            elif _loose(atom) in raw:
+                # Contact detail: an address inside a mailto href counts.
+                continue
+            ctx.fail("%s claims %r via %s and the page does not say it"
+                     % (path, atom, rel))

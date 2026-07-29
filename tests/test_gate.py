@@ -47,6 +47,11 @@ class TreeCase(unittest.TestCase):
     def error_rules(self):
         return {f.rule for f in self.errors()}
 
+    def warn_rules(self):
+        report, _ = run(self.config)
+        return {f.rule for f in report.findings
+                if getattr(f.severity, "name", str(f.severity)).lower() == "warn"}
+
 
 class TestGoodTree(TreeCase):
     def test_good_tree_has_no_errors(self):
@@ -199,6 +204,37 @@ class TestVersionIsDeclaredOnce(unittest.TestCase):
             declared, __version__,
             "pyproject.toml says %s and tkm_gate.__version__ says %s. Bump both "
             "in the same commit as the tag." % (declared, __version__))
+
+
+class TestMdFactParity(TreeCase):
+    """Compare facts, never prose, and calibrate against how pages really look."""
+
+    def _on(self):
+        trees._edit(self.root, "gate.toml", '[rules."pages.count"]',
+                    '[rules."md.fact_parity"]\nenabled = true\n\n[rules."pages.count"]')
+
+    def test_a_price_the_page_does_not_show_is_a_finding(self):
+        self._on()
+        trees._edit(self.root, "md/pricing.md", "- Full: 900 EUR", "- Full: 999 EUR")
+        self.assertIn("md.fact_parity", self.warn_rules())
+
+    def test_a_price_split_from_its_currency_is_not(self):
+        # A page routinely prints the number in one element and the currency in
+        # another. That is a layout choice, not a contradiction, and treating
+        # it as one produced 42 false findings on a real site.
+        self._on()
+        trees._edit(self.root, "pricing/index.html", "Full 900 EUR.",
+                    "Full <span>900</span> <span>EUR</span>.")
+        self.assertNotIn("md.fact_parity", self.warn_rules())
+
+    def test_an_address_only_in_a_mailto_href_is_not(self):
+        # Stripping tags hides it, but the page genuinely offers it.
+        self._on()
+        trees._edit(self.root, "md/pricing.md", "- Full: 900 EUR",
+                    "- Full: 900 EUR\n- Write to hello@example.com")
+        trees._edit(self.root, "pricing/index.html", "Full 900 EUR.",
+                    'Full 900 EUR. <a href="mailto:hello@example.com">Write</a>')
+        self.assertNotIn("md.fact_parity", self.warn_rules())
 
 
 class TestForbiddenSameAs(TreeCase):

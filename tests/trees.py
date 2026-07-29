@@ -101,7 +101,9 @@ def build_good(root: Path) -> Path:
     for rel, (route, title) in ROUTES.items():
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        body = "<p>From 250 EUR.</p>" if rel.startswith("pricing") else ""
+        # Both figures the rendition lists, because md.fact_parity is about a
+        # page and its rendition agreeing and the fixture should start agreed.
+        body = "<p>Basic 250 EUR. Full 900 EUR.</p>" if rel.startswith("pricing") else ""
         if rel.startswith("legal"):
             body = "<p>Operated by A. Person, identifier X1234567Z.</p>"
         p.write_text(page(route, title, md=SITE + "/md/" + title.lower() + ".md",
