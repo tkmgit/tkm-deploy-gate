@@ -168,3 +168,7 @@ enabled = false
 exempt = []                            # page path globs
 ignore = []                            # regexes for atoms that are known to
                                        # live only in the rendition
+required_in_rendition = []             # ["email", "price", "phone"]. Facts the
+                                       # page offers INSIDE ITS MAIN LANDMARK
+                                       # that the rendition may not drop. The
+                                       # footer is chrome and is not read.

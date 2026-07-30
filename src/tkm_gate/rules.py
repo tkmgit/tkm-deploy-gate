@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import fnmatch
 import hashlib
+import html
 import json
 import re
 import urllib.parse
@@ -989,7 +990,7 @@ def schema_forbidden_sameas(ctx: Ctx) -> None:
 # A quantity, a contact detail or an identifier. Prose is deliberately not
 # compared: a rendition is a condensation and is meant to read differently.
 RE_ATOM = re.compile(r"""(
-    \b\d[\d.,]*\s?(?:%|EUR|€|USD|\$|GBP|£|km|ha|m²|m2|mm|cm|kg|MP|px)\b
+    \b\d[\d.,]*\s?(?:%|EUR|€|USD|\$|GBP|£|km|ha|m²|m2|mm|cm|kg|MP|px)(?!\w)
   | \b[\w.+-]+@[\w-]+\.[\w.]+\b
   | \b\+\d{1,3}[\s\d]{6,}\b
 )""", re.X)
@@ -997,8 +998,16 @@ RE_NUM = re.compile(r"\d[\d.,]*")
 RE_MARKUP = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.S | re.I)
 
 
-def _visible(html: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", RE_MARKUP.sub(" ", html)))
+def _visible(src: str) -> str:
+    """Text as a reader sees it, entities decoded.
+
+    Decoding matters more than it looks. A page that writes its price as
+    "320 &euro;" reads as "320 EUR" to a visitor and as gibberish to a regex,
+    so an undecoded comparison silently answers no to a question it never
+    actually asked.
+    """
+    return re.sub(r"\s+", " ",
+                  html.unescape(re.sub(r"<[^>]+>", " ", RE_MARKUP.sub(" ", src))))
 
 
 def _loose(s: str) -> str:
@@ -1030,6 +1039,7 @@ def md_fact_parity(ctx: Ctx) -> None:
     """
     exempt = ctx.opt("exempt", [])
     ignore = [re.compile(str(p)) for p in ctx.opt("ignore", [])]
+    required = set(ctx.opt("required_in_rendition", []))
     for path, src in ctx.site.pages.items():
         if any(fnmatch.fnmatch(path, pat) for pat in exempt):
             continue
@@ -1049,7 +1059,7 @@ def md_fact_parity(ctx: Ctx) -> None:
         ctx.seen()
 
         vis, raw = _loose(_visible(src)), _loose(src)
-        for found in RE_ATOM.findall(body):
+        for found in dict.fromkeys(RE_ATOM.findall(body)):
             atom = (found[0] if isinstance(found, tuple) else found).strip()
             if any(rx.search(atom) for rx in ignore):
                 continue
@@ -1064,3 +1074,44 @@ def md_fact_parity(ctx: Ctx) -> None:
                 continue
             ctx.fail("%s claims %r via %s and the page does not say it"
                      % (path, atom, rel))
+
+        # Reverse direction. A condensation is allowed to omit, so this asks
+        # only about facts the page OFFERS TO A HUMAN: text a visitor reads and
+        # the target of a mailto or tel link they can click. Schema-only
+        # business metadata is deliberately not read here. A priceRange or an
+        # organisation email sitting in JSON-LD on every page is boilerplate
+        # about the company, not content of this page, and demanding that a
+        # rendition mirror it would make every rendition wrong.
+        if not required:
+            continue
+        # Only what lives inside the main landmark counts as this page's own
+        # content. A contact address or a phone number in the site footer is
+        # chrome: it appears on every page and belongs to the site, not to this
+        # one, and requiring every rendition to repeat it produced 138 warnings
+        # across four sites, none of them a defect. a11y.main_landmark already
+        # guarantees exactly one main per indexable page, so this scoping costs
+        # nothing and rests on an invariant the gate itself enforces.
+        inner = re.search(r"<main[^>]*>(.*?)</main>", src, re.S | re.I)
+        if not inner:
+            continue
+        region = inner.group(1)
+        offered = _visible(region)
+        for href in re.findall(r'href="(mailto:[^"]+|tel:[^"]+)"', region):
+            offered += " " + urllib.parse.unquote(href.split(":", 1)[1])
+        loose_md = _loose(body)
+        for found in dict.fromkeys(RE_ATOM.findall(offered)):
+            atom = (found[0] if isinstance(found, tuple) else found).strip()
+            if any(rx.search(atom) for rx in ignore):
+                continue
+            kind = ("email" if "@" in atom
+                    else "phone" if atom.startswith("+")
+                    else "price" if re.search(r"EUR|€|USD|\$|GBP|£", atom)
+                    else "quantity")
+            if kind not in required:
+                continue
+            probe = RE_NUM.match(atom).group(0) if kind != "email" else atom
+            if _loose(probe) in loose_md:
+                continue
+            ctx.fail("%s offers %r to a visitor and %s drops it. A rendition "
+                     "may condense, but not withhold a %s the page gives away."
+                     % (path, atom, rel, kind))

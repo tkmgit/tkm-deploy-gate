@@ -133,6 +133,13 @@ page routinely prints `320` in one element and its currency in another, and a
 contact detail matches against raw HTML, because an address inside a `mailto`
 href is genuinely offered even though stripping tags hides it.
 
+It reads both directions. Forward: the rendition may not claim a fact the page
+does not make. Reverse, opt in through `required_in_rendition`: the rendition
+may not drop a fact the page offers **inside its main landmark**. The footer is
+deliberately out of scope. A contact address in a site footer belongs to the
+site rather than to any one page, and requiring every rendition to repeat it
+produced 138 warnings across four sites without a single defect among them.
+
 Ships as a warning and OFF.
 
 ## Severity

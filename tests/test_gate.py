@@ -211,7 +211,9 @@ class TestMdFactParity(TreeCase):
 
     def _on(self):
         trees._edit(self.root, "gate.toml", '[rules."pages.count"]',
-                    '[rules."md.fact_parity"]\nenabled = true\n\n[rules."pages.count"]')
+                    '[rules."md.fact_parity"]\nenabled = true\n'
+                    'required_in_rendition = ["email", "price", "phone"]\n\n'
+                    '[rules."pages.count"]')
 
     def test_a_price_the_page_does_not_show_is_a_finding(self):
         self._on()
@@ -226,6 +228,32 @@ class TestMdFactParity(TreeCase):
         trees._edit(self.root, "pricing/index.html", "Full 900 EUR.",
                     "Full <span>900</span> <span>EUR</span>.")
         self.assertNotIn("md.fact_parity", self.warn_rules())
+
+    def test_a_price_in_main_that_the_rendition_drops_is_a_finding(self):
+        # The reverse direction. A condensation may omit, but not withhold a
+        # figure the page puts in front of a visitor.
+        self._on()
+        trees._edit(self.root, "md/pricing.md", "- Full: 900 EUR", "")
+        self.assertIn("md.fact_parity", self.warn_rules())
+
+    def test_but_a_contact_detail_in_the_footer_is_not(self):
+        # Footer contact details are site chrome. They appear on every page and
+        # belong to the site rather than to this page, and requiring every
+        # rendition to repeat them produced 138 warnings across four real sites,
+        # not one of them a defect.
+        self._on()
+        trees._edit(self.root, "pricing/index.html", "</main>",
+                    '</main><footer><a href="mailto:hello@example.com">Mail</a></footer>')
+        self.assertNotIn("md.fact_parity", self.warn_rules())
+
+    def test_a_currency_entity_is_decoded_before_comparing(self):
+        # "320 &euro;" reads as a price to a visitor and as gibberish to a
+        # regex. An undecoded comparison answers no to a question it never
+        # asked, and it hid real findings on two sites.
+        self._on()
+        trees._edit(self.root, "pricing/index.html", "Full 900 EUR.", "Full 900 &euro;.")
+        trees._edit(self.root, "md/pricing.md", "- Full: 900 EUR", "")
+        self.assertIn("md.fact_parity", self.warn_rules())
 
     def test_an_address_only_in_a_mailto_href_is_not(self):
         # Stripping tags hides it, but the page genuinely offers it.
