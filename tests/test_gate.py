@@ -264,6 +264,54 @@ class TestMdFactParity(TreeCase):
                     'Full 900 EUR. <a href="mailto:hello@example.com">Write</a>')
         self.assertNotIn("md.fact_parity", self.warn_rules())
 
+    def test_a_phone_the_rendition_drops_is_a_finding_not_a_crash(self):
+        # Before 1.12.0 this scenario could not even be expressed. The atom
+        # pattern demanded a word character before the plus sign, so a phone
+        # after a space or a tel: colon was never extracted, and the one probe
+        # line that would have inspected it crashed on any atom that does not
+        # begin with a digit. Two bugs, each hiding the other.
+        self._on()
+        trees._edit(self.root, "pricing/index.html", "Full 900 EUR.",
+                    "Full 900 EUR. Call us on +34 664 598 274.")
+        report, _ = run(self.config)
+        self.assertNotIn("engine.rule_crashed", {f.rule for f in report.errors})
+        details = [f.detail for f in report.warnings if f.rule == "md.fact_parity"]
+        self.assertTrue(any("664 598 274" in d for d in details), details)
+
+    def test_the_same_phone_differently_formatted_in_the_rendition_passes(self):
+        # A page prints +34 664 598 274 and a rendition condenses it to
+        # +34664598274. Same fact, different formatting: the digit run is what
+        # gets compared, because probing on the first numeric group alone would
+        # match the country code against almost any text, a false pass.
+        self._on()
+        trees._edit(self.root, "pricing/index.html", "Full 900 EUR.",
+                    "Full 900 EUR. Call us on +34 664 598 274.")
+        trees._edit(self.root, "md/pricing.md", "- Full: 900 EUR",
+                    "- Full: 900 EUR\n- Phone: +34664598274")
+        report, _ = run(self.config)
+        self.assertNotIn("engine.rule_crashed", {f.rule for f in report.errors})
+        self.assertNotIn("md.fact_parity", self.warn_rules())
+
+    def test_a_currency_first_price_is_evaluated_not_crashed(self):
+        # €900 and 900 EUR are the same offer. Before 1.12.0 a currency-first
+        # price was invisible to the atom pattern entirely.
+        self._on()
+        trees._edit(self.root, "pricing/index.html", "Full 900 EUR.", "Full €900.")
+        report, _ = run(self.config)
+        self.assertNotIn("engine.rule_crashed", {f.rule for f in report.errors})
+        self.assertNotIn("md.fact_parity", self.warn_rules())
+
+    def test_a_currency_first_price_the_rendition_drops_is_a_finding(self):
+        # Reverse of the above: the page offers €900 inside main and the
+        # rendition withholds it. Must fail, not crash and not pass vacuously.
+        self._on()
+        trees._edit(self.root, "pricing/index.html", "Full 900 EUR.", "Full €900.")
+        trees._edit(self.root, "md/pricing.md", "- Full: 900 EUR", "- Ask us for a quote")
+        report, _ = run(self.config)
+        self.assertNotIn("engine.rule_crashed", {f.rule for f in report.errors})
+        details = [f.detail for f in report.warnings if f.rule == "md.fact_parity"]
+        self.assertTrue(any("900" in d for d in details), details)
+
 
 class TestForbiddenSameAs(TreeCase):
     def test_an_org_with_no_sameas_still_counts_as_inspected(self):

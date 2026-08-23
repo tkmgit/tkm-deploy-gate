@@ -991,8 +991,9 @@ def schema_forbidden_sameas(ctx: Ctx) -> None:
 # compared: a rendition is a condensation and is meant to read differently.
 RE_ATOM = re.compile(r"""(
     \b\d[\d.,]*\s?(?:%|EUR|€|USD|\$|GBP|£|km|ha|m²|m2|mm|cm|kg|MP|px)(?!\w)
+  | (?:EUR|€|USD|\$|GBP|£)\s?\d[\d.,]*\b
   | \b[\w.+-]+@[\w-]+\.[\w.]+\b
-  | \b\+\d{1,3}[\s\d]{6,}\b
+  | (?<![\w+])\+\d{1,3}[\s\d]{6,}\d
 )""", re.X)
 RE_NUM = re.compile(r"\d[\d.,]*")
 RE_MARKUP = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.S | re.I)
@@ -1109,7 +1110,28 @@ def md_fact_parity(ctx: Ctx) -> None:
                     else "quantity")
             if kind not in required:
                 continue
-            probe = RE_NUM.match(atom).group(0) if kind != "email" else atom
+            if kind == "email":
+                probe = atom
+            elif kind == "phone":
+                # Formatting differs between page and rendition, so compare the
+                # digit run itself. Taking the first numeric group would yield
+                # the country code and match almost any text: a false pass.
+                digits = re.sub(r"\D", "", atom)
+                if len(digits) < 6:
+                    continue
+                if digits in re.sub(r"\D", "", body):
+                    continue
+                ctx.fail("%s offers %r to a visitor and %s drops it. A "
+                         "rendition may condense, but not withhold a %s the "
+                         "page gives away." % (path, atom, rel, kind))
+                continue
+            else:
+                num = RE_NUM.search(atom)
+                if num is None:
+                    # No digits to compare. Nothing checkable, not a defect.
+                    continue
+                probe = num.group(0)
+
             if _loose(probe) in loose_md:
                 continue
             ctx.fail("%s offers %r to a visitor and %s drops it. A rendition "
