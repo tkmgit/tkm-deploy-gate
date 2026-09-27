@@ -142,6 +142,33 @@ produced 138 warnings across four sites without a single defect among them.
 
 Ships as a warning and OFF.
 
+## Repository files in the published tree
+
+`publish.no_repo_files` refuses any file in the published tree that belongs to
+the repository rather than to the site: agent instruction files (`CLAUDE.md`,
+`AGENTS.md`), `README` and changelogs, `*.toml`, package manifests and build
+configs, `.env` and VCS residue, and build or server source (`netlify/`,
+`scripts/`, `src/`, `*.py`, `*.sh`). Matching is case insensitive because the
+edge is: `/readme.md` served the content of `README.md`.
+
+It exists because a site that publishes its repository root publishes every
+file in it. In 2026 a `CLAUDE.md` added for tooling and an old `README.md` sat
+readable on two live domains for weeks. A 404 rule had been written for the one
+file someone noticed, `gate.toml`, and the class itself stayed open.
+
+There is no `_redirects` escape hatch. Measured on the wire: a forced
+`/CLAUDE.md /404.html 404!` rule made `/CLAUDE.md` a 404 while `/claude.md`
+kept serving the file, because Netlify matches redirect sources case
+sensitively and serves static files case insensitively. The fix is a publish
+directory that only contains the site: build or stage into it and point
+`[site] root` at it. `netlify.toml`, `_headers` and `_redirects` are consumed
+by the platform and never served, so they are exempt. Options:
+`extra_patterns`, `allow`.
+
+Ships as an error and ON. `tkm-probe` checks the same thing on the wire for a
+fixed list of paths, so a site pinned to an older engine is still covered by
+the daily probe.
+
 ## Severity
 
 `error` blocks the deploy. `warn` prints and does not block.
