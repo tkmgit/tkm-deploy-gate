@@ -557,6 +557,79 @@ def redirects_targets_exist(ctx: Ctx) -> None:
             )
 
 
+# ------------------------------------------------------------------- publish
+# Files that belong to the repository, not to the site. On a site whose publish
+# directory is the repository itself, every one of these is served to anyone who
+# asks for it by name. That is how a CLAUDE.md with internal working rules and a
+# README with launch notes sat on two live domains for weeks in 2026: the file
+# was added for tooling, and nothing compared "what is in the tree" with "what
+# should be public".
+REPO_FILE_PATTERNS = [
+    # agent and editor instruction files
+    "claude.md", "*/claude.md", "agents.md", "*/agents.md", "gemini.md",
+    "*/gemini.md", ".cursorrules", ".claude/*", ".cursor/*", ".github/*",
+    ".vscode/*", ".idea/*",
+    # repository documentation
+    "readme", "readme.*", "changelog*", "contributing*", "todo.md", "notes.md",
+    "handoff*.md",
+    # build and gate configuration
+    "*.toml", "package.json", "package-lock.json", "pnpm-lock.yaml",
+    "yarn.lock", "bun.lockb", "tsconfig*.json", "jsconfig.json",
+    "astro.config.*", "vite.config.*", "svelte.config.*", "next.config.*",
+    "tailwind.config.*", "postcss.config.*", ".eslintrc*", "eslint.config.*",
+    ".prettierrc*", "makefile", "requirements*.txt",
+    # environment and VCS residue
+    ".env", ".env.*", ".gitignore", ".gitattributes", ".npmrc", ".nvmrc",
+    ".node-version", ".python-version", ".ds_store", "*/.ds_store",
+    # source that only runs at build time or on the server
+    "netlify/*", "scripts/*", "src/*", "*.py", "*.sh",
+]
+# Consumed by the platform and never served, measured on the wire: a live
+# publish "." site answered 404 for netlify.toml with no redirect rule.
+PLATFORM_FILES = {"_headers", "_redirects", "netlify.toml"}
+
+
+@rule("publish.no_repo_files")
+def publish_no_repo_files(ctx: Ctx) -> None:
+    """Nothing in the published tree may be a repository file.
+
+    Matching is case insensitive because the edge is: /readme.md served the
+    content of README.md. For the same reason there is NO _redirects escape
+    hatch. Measured 2026-09-27: a forced "/CLAUDE.md /404.html 404!" rule
+    turned /CLAUDE.md into a 404 while /claude.md kept returning the file,
+    because Netlify matches redirect sources case sensitively and serves static
+    files case insensitively. Every casing is its own URL, so a 404 rule cannot
+    close the class. The only fix is a publish directory that does not contain
+    the repository.
+    """
+    patterns = [p.lower() for p in REPO_FILE_PATTERNS]
+    patterns += [str(p).lower() for p in ctx.opt("extra_patterns", [])]
+    allow = [str(a).lower() for a in ctx.opt("allow", [])]
+    skip = {".git", "node_modules", ".netlify", "__pycache__"}
+    for p in sorted(ctx.site.root.rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(ctx.site.root).as_posix()
+        if skip & set(rel.split("/")):
+            continue
+        ctx.seen()
+        low = rel.lower()
+        if low in PLATFORM_FILES:
+            continue
+        if any(fnmatch.fnmatch(low, a) for a in allow):
+            continue
+        hit = next((pat for pat in patterns if fnmatch.fnmatch(low, pat)), None)
+        if hit is None:
+            continue
+        ctx.fail(
+            "%s is a repository file (matches %r) and it is in the published "
+            "tree, so anyone can fetch it by name, in any letter case. A "
+            "_redirects 404 does not close this: redirects match case "
+            "sensitively and static files do not. Publish from a directory "
+            "that holds only the site." % (rel, hit)
+        )
+
+
 # -------------------------------------------------------------------- legacy
 @rule("legacy.retired_hosts")
 def legacy_retired_hosts(ctx: Ctx) -> None:

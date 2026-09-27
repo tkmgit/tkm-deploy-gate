@@ -31,6 +31,27 @@ DEFAULT_HEADERS = [
 ]
 
 
+# Repository files that must never be fetchable on a live domain. The gate
+# refuses them in the tree (publish.no_repo_files); this proves the edge agrees,
+# on every site, whatever engine version that site is pinned to. Written after
+# the 2026-09-27 audit found CLAUDE.md and README.md served on two domains.
+REPO_FILE_PATHS = [
+    # Both casings on purpose: Netlify serves static files case insensitively
+    # while redirect rules match case sensitively, so a 404 rule for one
+    # casing can leave the other serving the file. Measured 2026-09-27.
+    "/CLAUDE.md", "/claude.md", "/AGENTS.md", "/agents.md", "/GEMINI.md",
+    "/README.md", "/readme.md",
+    "/gate.toml", "/netlify.toml", "/package.json", "/.env", "/.git/HEAD",
+    "/.git/config", "/.gitignore",
+]
+
+
+def served_repo_file(status, body: bytes, home: bytes) -> bool:
+    """True when a repository file is really being served. A 200 whose body is
+    the home page is an SPA fallback, not a leak."""
+    return status == 200 and body != home
+
+
 class Result:
     def __init__(self) -> None:
         self.failures: list[str] = []
@@ -79,6 +100,12 @@ def probe(site: str, *, want_md: bool, want_collector: bool,
             "%s/ sends CSP as report-only. A policy that only reports is a "
             "policy that is not enforcing." % site,
         )
+
+    for path in REPO_FILE_PATHS:
+        st, _, leaked = fetch(site + path)
+        r.check(not served_repo_file(st, leaked, body),
+                "%s%s is served (%s). A repository file on the public web; the "
+                "publish directory must not be the repository root." % (site, path, st))
 
     # Every URL the sitemap advertises has to resolve. The gate proved the
     # sitemap agrees with the files; only this proves the edge agrees too.

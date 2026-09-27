@@ -53,6 +53,7 @@ DEFAULTS: dict[str, tuple[Severity, int, bool]] = {
     "schema.pinned_nodes":            (Severity.ERROR, 1, False),
     "schema.forbidden_sameas":        (Severity.ERROR, 1, False),
     "md.fact_parity":                 (Severity.WARN,  1, False),
+    "publish.no_repo_files":          (Severity.ERROR, 1, True),
 }
 
 
