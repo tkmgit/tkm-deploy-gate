@@ -38,7 +38,7 @@ class TreeCase(unittest.TestCase):
 
     @property
     def root(self) -> Path:
-        return self.tmp / "site"
+        return self.tmp / "site" / "public"
 
     def errors(self):
         report, _ = run(self.config)
@@ -414,7 +414,7 @@ class TestRouteConvention(TreeCase):
     def test_and_passes_once_the_convention_is_declared(self):
         self._switch_to_no_trailing_slash()
         cfg = self.config.read_text(encoding="utf-8").replace(
-            'root = "."', 'root = "."\ntrailing_slash = false')
+            'root = "public"', 'root = "public"\ntrailing_slash = false')
         self.config.write_text(cfg, encoding="utf-8")
         self.assertEqual([], [(f.rule, f.detail) for f in self.errors()])
 
@@ -434,7 +434,7 @@ class TestExclude(TreeCase):
             "<html><body><form name='contact'></form></body></html>",
             encoding="utf-8")
         cfg = self.config.read_text(encoding="utf-8").replace(
-            'root = "."', 'root = "."\nexclude = ["__forms.html"]')
+            'root = "public"', 'root = "public"\nexclude = ["__forms.html"]')
         self.config.write_text(cfg, encoding="utf-8")
         self.assertEqual([], [(f.rule, f.detail) for f in self.errors()])
 
@@ -465,7 +465,7 @@ class TestRouteMap(TreeCase):
     def test_reading_the_rewrite_map_fixes_it(self):
         self._flatten()
         cfg = self.config.read_text(encoding="utf-8").replace(
-            'root = "."', 'root = "."\nroute_map = "_redirects"')
+            'root = "public"', 'root = "public"\nroute_map = "_redirects"')
         self.config.write_text(cfg, encoding="utf-8")
         self.assertEqual([], [(f.rule, f.detail) for f in self.errors()])
 
@@ -476,13 +476,13 @@ class TestRouteMap(TreeCase):
         (self.root / "_redirects").write_text(
             "/about/  /_prerendered/about.html  301\n", encoding="utf-8")
         cfg = self.config.read_text(encoding="utf-8").replace(
-            'root = "."', 'root = "."\nroute_map = "_redirects"')
+            'root = "public"', 'root = "public"\nroute_map = "_redirects"')
         self.config.write_text(cfg, encoding="utf-8")
         self.assertIn("structure.canonical", self.error_rules())
 
     def test_a_missing_route_map_file_is_reported_not_ignored(self):
         cfg = self.config.read_text(encoding="utf-8").replace(
-            'root = "."', 'root = "."\nroute_map = "_redirects"')
+            'root = "public"', 'root = "public"\nroute_map = "_redirects"')
         self.config.write_text(cfg, encoding="utf-8")
         self.assertIn("engine.rule_crashed", self.error_rules())
 
@@ -575,6 +575,98 @@ class TestRedirectTargets(TreeCase):
         self.assertNotIn("redirects.targets_exist", self.error_rules())
 
 
+class TestNoRepoFiles(TreeCase):
+    """publish.no_repo_files, both directions.
+
+    Written for what the 2026-09-27 audit measured: CLAUDE.md and README.md
+    served on two live domains because those sites published their repository
+    root.
+    """
+
+    RULE = "publish.no_repo_files"
+
+    def _write(self, rel, text="x\n", base=None):
+        p = (base or self.root) / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+
+    def test_the_good_tree_is_clean(self):
+        self.assertNotIn(self.RULE, self.error_rules())
+
+    def test_claude_md_in_the_published_tree_is_caught(self):
+        self._write("CLAUDE.md", "@~/ops/PORTFOLIO.md\n")
+        self.assertIn(self.RULE, self.error_rules())
+
+    def test_readme_is_caught_in_any_case(self):
+        self._write("readme.md")
+        self.assertIn(self.RULE, self.error_rules())
+
+    def test_agents_md_in_a_subdirectory_is_caught(self):
+        self._write("about/AGENTS.md")
+        self.assertIn(self.RULE, self.error_rules())
+
+    def test_a_config_in_the_published_tree_is_caught(self):
+        self._write("gate.toml", "[site]\n")
+        self.assertIn(self.RULE, self.error_rules())
+
+    def test_function_source_is_caught(self):
+        self._write("netlify/functions/csp-report.mjs", "export default () => 1\n")
+        self.assertIn(self.RULE, self.error_rules())
+
+    def test_a_forced_404_does_not_excuse_the_file(self):
+        # Measured on the wire: the 404 rule closed /CLAUDE.md and left
+        # /claude.md serving the file. The rule must not accept it as a fix.
+        self._write("CLAUDE.md")
+        self._write("_redirects", "/CLAUDE.md  /404.html  404!\n")
+        self.assertIn(self.RULE, self.error_rules())
+
+    def test_platform_files_are_not_repo_files(self):
+        self._write("netlify.toml", "[build]\n")
+        self.assertNotIn(self.RULE, self.error_rules())
+
+    def test_markdown_renditions_are_site_content(self):
+        self.assertTrue(list((self.root / "md").glob("*.md")))
+        self.assertNotIn(self.RULE, self.error_rules())
+
+    def test_repository_files_outside_the_published_tree_are_fine(self):
+        # The durable layout: repository files sit next to the publish
+        # directory, not inside it.
+        repo = self.root.parent
+        self._write("CLAUDE.md", base=repo)
+        self._write("README.md", base=repo)
+        self.assertNotIn(self.RULE, self.error_rules())
+
+    def test_allow_lets_a_declared_file_through(self):
+        self._write("readme.txt")
+        cfg = self.config.read_text(encoding="utf-8") + (
+            '\n[rules."publish.no_repo_files"]\nallow = ["readme.txt"]\n')
+        self.config.write_text(cfg, encoding="utf-8")
+        self.assertNotIn(self.RULE, self.error_rules())
+
+    def test_the_rule_inspects_every_file(self):
+        report, _ = run(self.config)
+        self.assertGreater(report.seen.get(self.RULE, 0), 10)
+
+
+class TestProbeRepoFiles(unittest.TestCase):
+    def test_a_served_repo_file_is_a_leak(self):
+        from tkm_gate.probe import served_repo_file
+        self.assertTrue(served_repo_file(200, b"@~/ops/PORTFOLIO.md", b"<html>home"))
+
+    def test_a_404_is_not_a_leak(self):
+        from tkm_gate.probe import served_repo_file
+        self.assertFalse(served_repo_file(404, b"", b"<html>home"))
+
+    def test_an_spa_fallback_is_not_a_leak(self):
+        from tkm_gate.probe import served_repo_file
+        self.assertFalse(served_repo_file(200, b"<html>home", b"<html>home"))
+
+    def test_the_probe_asks_for_both_casings(self):
+        from tkm_gate.probe import REPO_FILE_PATHS
+        self.assertIn("/CLAUDE.md", REPO_FILE_PATHS)
+        self.assertIn("/claude.md", REPO_FILE_PATHS)
+
+
 class TestConfig(TreeCase):
     def test_unknown_rule_id_is_fatal(self):
         cfg = self.config.read_text(encoding="utf-8")
@@ -590,7 +682,7 @@ class TestConfig(TreeCase):
 
     def test_missing_root_is_fatal(self):
         cfg = self.config.read_text(encoding="utf-8")
-        self.config.write_text(cfg.replace('root = "."', 'root = "dist"'),
+        self.config.write_text(cfg.replace('root = "public"', 'root = "dist"'),
                                encoding="utf-8")
         self.assertEqual(2, main(["-c", str(self.config)]))
 

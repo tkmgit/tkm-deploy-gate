@@ -92,7 +92,11 @@ ROUTES = {
 }
 
 
-def build_good(root: Path) -> Path:
+def build_good(repo: Path) -> Path:
+    # The repository holds gate.toml; the site is published from public/, the
+    # way every site in the estate should be. A fixture that published its own
+    # root would publish its own config, which publish.no_repo_files refuses.
+    root = repo / "public"
     root.mkdir(parents=True, exist_ok=True)
     (root / "img").mkdir(exist_ok=True)
     (root / "md").mkdir(exist_ok=True)
@@ -159,15 +163,15 @@ def build_good(root: Path) -> Path:
         "  Content-Type: text/markdown; charset=utf-8\n" % csp,
         encoding="utf-8")
 
-    (root / "gate.toml").write_text(GOOD_CONFIG, encoding="utf-8")
-    return root / "gate.toml"
+    (repo / "gate.toml").write_text(GOOD_CONFIG, encoding="utf-8")
+    return repo / "gate.toml"
 
 
 GOOD_CONFIG = f"""
 [site]
 name = "example.test"
 url  = "{SITE}"
-root = "."
+root = "public"
 
 [rules."pages.count"]
 min_pages = 5
@@ -192,6 +196,10 @@ min_prices = 2
 # ------------------------------------------------------------------ mutations
 def _edit(root: Path, rel: str, old: str, new: str) -> None:
     p = root / rel
+    if rel == "gate.toml":
+        # The config lives in the repository, one level above the published
+        # tree the mutations work on.
+        p = root.parent / rel
     src = p.read_text(encoding="utf-8")
     assert old in src, "fixture anchor %r vanished from %s" % (old, rel)
     p.write_text(src.replace(old, new, 1), encoding="utf-8")
