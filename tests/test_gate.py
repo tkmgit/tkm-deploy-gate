@@ -667,6 +667,137 @@ class TestProbeRepoFiles(unittest.TestCase):
         self.assertIn("/claude.md", REPO_FILE_PATHS)
 
 
+class TestFormRequiredMarkup(TreeCase):
+    """form.required_markup over several pages, both directions, and the
+    single page shape it grew from left exactly as it was."""
+
+    RULE = "form.required_markup"
+
+    def setUp(self):
+        super().setUp()
+        trees.add_form_pages(self.root)
+
+    def use(self, block):
+        trees._edit(self.root, "gate.toml", '[rules."pages.count"]',
+                    block + '[rules."pages.count"]')
+
+    def findings(self):
+        report, _ = run(self.config)
+        return [f.detail for f in report.errors if f.rule == self.RULE]
+
+    def seen(self):
+        report, _ = run(self.config)
+        return report.seen.get(self.RULE, 0)
+
+    # ------------------------------------------------------------ multi pass
+    def test_two_correct_form_pages_pass(self):
+        self.use(trees.FORM_BLOCK_MULTI)
+        self.assertEqual([], self.findings())
+        self.assertEqual([], [(f.rule, f.detail) for f in self.errors()])
+        self.assertEqual(0, main(["-c", str(self.config)]))
+
+    def test_every_listed_page_is_inspected(self):
+        self.use(trees.FORM_BLOCK_MULTI)
+        # 4 shared + 1 per page action + 1 forbidden text, on each of two pages.
+        self.assertEqual(12, self.seen())
+
+    # ------------------------------------------------------------ multi fail
+    def test_second_page_missing_a_marker_names_that_page(self):
+        self.use(trees.FORM_BLOCK_MULTI)
+        trees._edit(self.root, "tr/iletisim/index.html",
+                    ' netlify-honeypot="company-website"', "")
+        self.assertEqual(
+            ['tr/iletisim/index.html does not contain netlify-honeypot="company-website"'],
+            self.findings())
+        self.assertEqual(1, main(["-c", str(self.config)]))
+
+    def test_a_listed_page_that_is_missing_is_a_finding(self):
+        self.use(trees.FORM_BLOCK_MULTI)
+        (self.root / "tr" / "iletisim" / "index.html").unlink()
+        self.assertEqual(
+            ["tr/iletisim/index.html is missing, so the contact form cannot be checked"],
+            self.findings())
+        self.assertEqual(1, main(["-c", str(self.config)]))
+
+    def test_wrong_action_on_one_page_is_caught_by_page_required(self):
+        self.use(trees.FORM_BLOCK_MULTI)
+        trees._edit(self.root, "tr/iletisim/index.html",
+                    'action="/tr/iletisim/tesekkurler/"', 'action="/contact/thanks/"')
+        self.assertEqual(
+            ['tr/iletisim/index.html does not contain action="/tr/iletisim/tesekkurler/"'],
+            self.findings())
+
+    def test_forbidden_text_applies_to_every_listed_page(self):
+        self.use(trees.FORM_BLOCK_MULTI)
+        trees._edit(self.root, "tr/iletisim/index.html", "<h1>Iletisim</h1>",
+                    "<h1>Iletisim</h1><p>Mockup form</p>")
+        self.assertEqual(
+            ["tr/iletisim/index.html still carries the placeholder text 'Mockup form'"],
+            self.findings())
+
+    def test_page_required_for_an_unchecked_page_is_an_error(self):
+        self.use(trees.FORM_BLOCK_MULTI.replace(
+            '"tr/iletisim/index.html" = [', '"hr/kontakt/index.html" = ['))
+        self.assertEqual(
+            ["page_required names hr/kontakt/index.html, which is not in page or "
+             "pages, so its requirements would never be checked"],
+            self.findings())
+
+    def test_page_and_pages_together_check_the_union(self):
+        self.use(trees.FORM_BLOCK_MULTI.replace(
+            'pages = ["contact/index.html", "tr/iletisim/index.html"]',
+            'page = "contact/index.html"\npages = ["tr/iletisim/index.html", "contact/index.html"]'))
+        self.assertEqual([], self.findings())
+        # Listed twice, inspected once.
+        self.assertEqual(12, self.seen())
+        trees._edit(self.root, "contact/index.html", ' data-netlify="true"', "")
+        self.assertEqual(['contact/index.html does not contain data-netlify="true"'],
+                         self.findings())
+
+    def test_pages_that_is_not_a_list_is_a_finding_not_a_crash(self):
+        self.use(trees.FORM_BLOCK_MULTI.replace(
+            'pages = ["contact/index.html", "tr/iletisim/index.html"]',
+            'pages = "contact/index.html"'))
+        report, _ = run(self.config)
+        self.assertNotIn("engine.rule_crashed", {f.rule for f in report.errors})
+        self.assertEqual(1, len(self.findings()))
+
+    # ------------------------------------------------------- single regression
+    def test_single_page_config_still_passes(self):
+        self.use(trees.FORM_BLOCK_SINGLE)
+        self.assertEqual([], self.findings())
+        # 5 required + 1 forbidden text, one page: the translated form is not
+        # looked at, exactly as before pages existed.
+        self.assertEqual(6, self.seen())
+
+    def test_single_page_config_ignores_the_other_forms(self):
+        self.use(trees.FORM_BLOCK_SINGLE)
+        (self.root / "tr" / "iletisim" / "index.html").unlink()
+        self.assertEqual([], self.findings())
+
+    def test_single_page_config_still_fails_on_a_missing_marker(self):
+        self.use(trees.FORM_BLOCK_SINGLE)
+        trees._edit(self.root, "contact/index.html", ' name="form-name"', "")
+        self.assertEqual(['contact/index.html does not contain name="form-name"'],
+                         self.findings())
+        self.assertEqual(1, main(["-c", str(self.config)]))
+
+    def test_single_page_config_still_fails_on_a_missing_page(self):
+        self.use(trees.FORM_BLOCK_SINGLE)
+        (self.root / "contact" / "index.html").unlink()
+        self.assertEqual(
+            ["contact/index.html is missing, so the contact form cannot be checked"],
+            self.findings())
+
+    def test_no_page_option_still_defaults_to_contact(self):
+        self.use(trees.FORM_BLOCK_SINGLE.replace('page = "contact/index.html"\n', ""))
+        self.assertEqual(6, self.seen())
+        (self.root / "contact" / "index.html").unlink()
+        self.assertEqual(
+            ["contact/index.html is missing, so the contact form cannot be checked"],
+            self.findings())
+
+
 class TestConfig(TreeCase):
     def test_unknown_rule_id_is_fatal(self):
         cfg = self.config.read_text(encoding="utf-8")

@@ -97,6 +97,35 @@ shape, not by literal value, and list the pages that are *required* to match
 under `allow`. An `allow` entry that matches no file is an error, because an
 exemption for a page that no longer exists silently widens on the next rename.
 
+## Contact forms
+
+`form.required_markup` checks that a form page exists and carries the markup
+the form needs to work, and that no placeholder text survived. It ships OFF.
+
+`page` names one page and still means exactly what it always did. `pages`
+(since 1.14.0) takes a list, because a multilingual site has one contact form
+per language and a rule id can appear only once in `gate.toml`: with `page`
+alone the translated forms went unchecked. If both are given the union is
+checked. `required` and `forbidden_text` apply to every checked page, a listed
+page that does not exist is an error, and every finding names its page.
+
+Markup that differs per page by design, such as a form action pointing at that
+language's own thanks page, goes in `page_required`. A key there that is not in
+`page` or `pages` is an error, because a requirement nobody evaluates is a
+vacuous pass in another shape.
+
+```toml
+[rules."form.required_markup"]
+enabled = true
+pages = ["contact/index.html", "tr/iletisim/index.html"]
+required = ['data-netlify="true"', 'name="form-name"']
+forbidden_text = ["Mockup form"]
+
+[rules."form.required_markup".page_required]
+"contact/index.html"     = ['action="/contact/thanks/"']
+"tr/iletisim/index.html" = ['action="/tr/iletisim/tesekkurler/"']
+```
+
 ## Entity rules
 
 `schema.entity_ids` requires an `@id` on organisation and person nodes. A node

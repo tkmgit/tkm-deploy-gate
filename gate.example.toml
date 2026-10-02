@@ -33,7 +33,9 @@ extra_files = ["style.css"]
 # --------------------------------------------------------------------- form
 [rules."form.required_markup"]         # default: error, OFF
 enabled = false
-page = "contact/index.html"
+page = "contact/index.html"           # one page, the original option
+# pages = ["contact/index.html", "tr/iletisim/index.html"]  # since 1.14.0:
+#                                     # a list; with page, the union is checked
 required = [
   'data-netlify="true"',
   'netlify-honeypot="company-website"',
@@ -41,6 +43,10 @@ required = [
   'name="form-name"',
 ]
 forbidden_text = ["Mockup form"]
+# Since 1.14.0: strings required on one page only, for markup that differs
+# per page by design. A key not in page or pages is an error.
+# [rules."form.required_markup".page_required]
+# "contact/index.html" = ['action="/contact/thanks/"']
 
 # ------------------------------------------------------------------ headers
 [rules."headers.required_present"]     # default: error, on

@@ -119,19 +119,59 @@ def fonts_no_third_party(ctx: Ctx) -> None:
 # ---------------------------------------------------------------------- form
 @rule("form.required_markup")
 def form_required_markup(ctx: Ctx) -> None:
-    page = ctx.opt("page", "contact/index.html")
-    src = ctx.site.read_if(page)
-    if src is None:
-        ctx.fail("%s is missing, so the contact form cannot be checked" % page)
+    """Every listed form page exists and carries the markup the form needs.
+
+    `page` (one path) is the original option and still means exactly what it
+    did. `pages` (a list) was added because a multilingual site has one contact
+    form per language and a rule id can appear only once in gate.toml, so the
+    translated forms went unchecked. Both may be given; the union is checked.
+    `required` and `forbidden_text` apply to every checked page.
+    `page_required` adds strings for one page only, for markup that differs per
+    page by design, such as a form action pointing at that language's thanks
+    page. A `page_required` key naming a page that is not checked is an error:
+    a requirement nobody evaluates is the vacuous pass in another shape.
+    """
+    page = ctx.opt("page")
+    pages = ctx.opt("pages")
+    if page is None and pages is None:
+        page = "contact/index.html"
+    targets: list[str] = []
+    if page is not None:
+        if not isinstance(page, str):
+            ctx.fail("option page must be a single path string, got %r. Use "
+                     "pages for a list." % (page,))
+            return
+        targets.append(page)
+    if pages is not None:
+        if not isinstance(pages, list) or not all(isinstance(p, str) for p in pages):
+            ctx.fail("option pages must be a list of path strings, got %r" % (pages,))
+            return
+        targets.extend(pages)
+    targets = list(dict.fromkeys(targets))
+
+    per_page = ctx.opt("page_required", {})
+    if not isinstance(per_page, dict):
+        ctx.fail("option page_required must be a table of page = [strings], got %r"
+                 % (per_page,))
         return
-    for needle in ctx.opt("required", []):
-        ctx.seen()
-        if needle not in src:
-            ctx.fail("%s does not contain %s" % (page, needle))
-    for banned in ctx.opt("forbidden_text", []):
-        ctx.seen()
-        if banned in src:
-            ctx.fail("%s still carries the placeholder text %r" % (page, banned))
+    for extra_page in per_page:
+        if extra_page not in targets:
+            ctx.fail("page_required names %s, which is not in page or pages, so "
+                     "its requirements would never be checked" % extra_page)
+
+    for target in targets:
+        src = ctx.site.read_if(target)
+        if src is None:
+            ctx.fail("%s is missing, so the contact form cannot be checked" % target)
+            continue
+        for needle in list(ctx.opt("required", [])) + list(per_page.get(target, [])):
+            ctx.seen()
+            if needle not in src:
+                ctx.fail("%s does not contain %s" % (target, needle))
+        for banned in ctx.opt("forbidden_text", []):
+            ctx.seen()
+            if banned in src:
+                ctx.fail("%s still carries the placeholder text %r" % (target, banned))
 
 
 # ------------------------------------------------------------------- headers

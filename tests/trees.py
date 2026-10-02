@@ -330,3 +330,73 @@ files = ["llms.txt", "md/*.md"]
 allow = ["legal/index.html"]
 
 '''
+
+
+# ---------------------------------------------------------------------- form
+# Two contact forms, one per language, each posting to its own thanks page.
+# The shared markup is identical; only the action differs, which is exactly
+# what page_required exists for. Added by add_form_pages, not by build_good,
+# because form.required_markup ships OFF and the good tree should keep
+# exercising the defaults.
+FORM_PAGES = {
+    "contact/index.html": ("/contact/", "Contact", "/contact/thanks/"),
+    "tr/iletisim/index.html": ("/tr/iletisim/", "Iletisim", "/tr/iletisim/tesekkurler/"),
+}
+
+FORM_SHARED = [
+    'data-netlify="true"',
+    'netlify-honeypot="company-website"',
+    'name="company-website"',
+    'name="form-name"',
+]
+
+
+def form_markup(action: str) -> str:
+    return (
+        '<form name="contact" method="POST" action="%s" data-netlify="true" '
+        'netlify-honeypot="company-website">'
+        '<input type="hidden" name="form-name" value="contact" />'
+        '<p hidden><label>Leave empty <input name="company-website" /></label></p>'
+        '<label>Name <input type="text" name="name" /></label>'
+        '<button type="submit">Send</button></form>' % action
+    )
+
+
+def add_form_pages(root: Path) -> None:
+    for rel, (route, title, action) in FORM_PAGES.items():
+        for target, body in ((rel, form_markup(action)), (action.lstrip("/") + "index.html", "")):
+            p = root / target
+            p.parent.mkdir(parents=True, exist_ok=True)
+            # noindex, like the staging page: the form fixtures are about form
+            # markup, and should not drag the sitemap and rendition rules in.
+            p.write_text(page(route if target == rel else action, title, body=body,
+                              extra_head='<meta name="robots" content="noindex" />'),
+                         encoding="utf-8")
+
+
+def _toml_list(items: list[str]) -> str:
+    return "[" + ", ".join("'%s'" % x for x in items) + "]"
+
+
+# The v1.13 shape: one page. Must keep behaving exactly as it always did.
+FORM_BLOCK_SINGLE = """[rules."form.required_markup"]
+enabled = true
+page = "contact/index.html"
+required = %s
+forbidden_text = ["Mockup form"]
+
+""" % _toml_list(FORM_SHARED + ['action="/contact/thanks/"'])
+
+# The v1.14 shape: every language's form, shared markup in required, the
+# per-language action in page_required.
+FORM_BLOCK_MULTI = """[rules."form.required_markup"]
+enabled = true
+pages = ["contact/index.html", "tr/iletisim/index.html"]
+required = %s
+forbidden_text = ["Mockup form"]
+
+[rules."form.required_markup".page_required]
+"contact/index.html" = ['action="/contact/thanks/"']
+"tr/iletisim/index.html" = ['action="/tr/iletisim/tesekkurler/"']
+
+""" % _toml_list(FORM_SHARED)
