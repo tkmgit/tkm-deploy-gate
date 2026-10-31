@@ -575,6 +575,69 @@ class TestRedirectTargets(TreeCase):
         self.assertNotIn("redirects.targets_exist", self.error_rules())
 
 
+class TestRedirectTargetsResolveLikeRoutes(TreeCase):
+    """A redirect points at a route, not at a file, so the target is resolved
+    the way the platform serves it: rewrite map first, then the file layout,
+    then the pretty URL form (/en served from en.html). Both directions: every
+    way the route can exist passes, a route with no file behind it fails.
+    """
+
+    RULE = "redirects.targets_exist"
+
+    def _page(self, rel):
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text((self.root / "index.html").read_text(encoding="utf-8"),
+                     encoding="utf-8")
+
+    def _redirects(self, text):
+        (self.root / "_redirects").write_text(text, encoding="utf-8")
+
+    def _use_route_map(self):
+        cfg = self.config.read_text(encoding="utf-8").replace(
+            'root = "public"', 'root = "public"\nroute_map = "_redirects"')
+        self.config.write_text(cfg, encoding="utf-8")
+
+    def test_a_target_served_from_name_html_passes(self):
+        self._page("en.html")
+        self._redirects("/en/blog  /en  301!\n")
+        self.assertNotIn(self.RULE, self.error_rules())
+
+    def test_a_target_served_from_name_index_html_passes(self):
+        self._page("en/index.html")
+        self._redirects("/en/blog  /en  301!\n")
+        self.assertNotIn(self.RULE, self.error_rules())
+
+    def test_a_target_served_through_a_200_rewrite_passes(self):
+        # The vitadel layout: /en lives at _prerendered/en.html and is served
+        # by a rewrite in the same _redirects file the 301 sits in.
+        self._page("_prerendered/en.html")
+        self._redirects(
+            "/en  /_prerendered/en.html  200\n"
+            "/en/blog  /en  301!\n")
+        self._use_route_map()
+        self.assertNotIn(self.RULE, self.error_rules())
+
+    def test_a_target_with_nothing_behind_it_fails(self):
+        self._redirects("/en/blog  /en  301!\n")
+        self.assertIn(self.RULE, self.error_rules())
+
+    def test_a_directory_without_index_html_fails(self):
+        # A bare directory is not a page: the platform serves nothing there.
+        (self.root / "en" / "img").mkdir(parents=True)
+        (self.root / "en" / "img" / "x.svg").write_text("<svg/>", encoding="utf-8")
+        self._redirects("/en/blog  /en  301!\n")
+        self.assertIn(self.RULE, self.error_rules())
+
+    def test_a_target_with_nothing_behind_it_fails_with_a_route_map(self):
+        self._page("_prerendered/en.html")
+        self._redirects(
+            "/en  /_prerendered/en.html  200\n"
+            "/de/blog  /de  301!\n")
+        self._use_route_map()
+        self.assertIn(self.RULE, self.error_rules())
+
+
 class TestNoRepoFiles(TreeCase):
     """publish.no_repo_files, both directions.
 

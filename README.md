@@ -198,6 +198,21 @@ Ships as an error and ON. `tkm-probe` checks the same thing on the wire for a
 fixed list of paths, so a site pinned to an older engine is still covered by
 the daily probe.
 
+## Redirect targets
+
+`redirects.targets_exist` reads `_redirects` and refuses a local target the
+site does not serve. A redirect to a missing page still returns the status it
+asks for, so nothing looks wrong while the platform's generic page ships.
+
+A target is a route, not a file, and is resolved the way links are: through
+`route_map` first (a `200` rewrite), then the file layout (`index.html` for a
+directory), then the pretty URL form Netlify serves without a rule (`/en` from
+`en.html`). A bare directory with no `index.html` is not a page. External
+targets, splats and placeholders are skipped. Option: `path` (default
+`_redirects`).
+
+Ships as an error and ON.
+
 ## Severity
 
 `error` blocks the deploy. `warn` prints and does not block.

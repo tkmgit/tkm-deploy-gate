@@ -200,6 +200,22 @@ class Site:
             target = target.rstrip("/") + "/index.html"
         return target
 
+    def served_file(self, route: str) -> str | None:
+        """The file the platform serves for a site absolute route, or None.
+
+        Same resolution as resolve() (rewrite map, then the file layout with
+        index.html for a directory), plus the pretty URL form Netlify serves
+        without a rule: /en from en.html. Returns a path only if it exists.
+        """
+        rel = self.resolve(route, "")
+        if rel is None:
+            return None
+        if (self.root / rel).is_file():
+            return rel
+        if not rel.endswith("index.html") and (self.root / (rel + ".html")).is_file():
+            return rel + ".html"
+        return None
+
 
 def _normpath(p: str) -> str:
     parts: list[str] = []

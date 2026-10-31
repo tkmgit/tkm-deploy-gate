@@ -559,7 +559,7 @@ def sitemap_no_foreign_hosts(ctx: Ctx) -> None:
 # ----------------------------------------------------------------- redirects
 @rule("redirects.targets_exist")
 def redirects_targets_exist(ctx: Ctx) -> None:
-    """Every local target in _redirects is a file that exists.
+    """Every local target in _redirects is a route the site actually serves.
 
     A redirect to a missing file still returns the status you asked for, so the
     rule looks like it works and nothing complains. What you actually serve is
@@ -586,10 +586,9 @@ def redirects_targets_exist(ctx: Ctx) -> None:
         if "*" in target or ":" in target or "*" in source:
             continue
         ctx.seen()
-        rel = target.lstrip("/")
-        if rel == "" or rel.endswith("/"):
-            rel += "index.html"
-        if not ctx.site.exists(rel):
+        # A target is a route, not a file: resolve it the way links are
+        # resolved (route_map, then the file layout) plus the pretty URL form.
+        if ctx.site.served_file(target) is None:
             ctx.fail(
                 "_redirects sends %s to %s, which does not exist. The status "
                 "code is still honoured, so this fails silently and serves the "
