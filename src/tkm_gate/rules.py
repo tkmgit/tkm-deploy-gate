@@ -17,8 +17,11 @@ import hashlib
 import html
 import json
 import re
+import tomllib
 import urllib.parse
 from html.parser import HTMLParser
+
+from .site import netlify_toml_rewrites, redirects_rewrites
 
 RULES: dict[str, callable] = {}
 
@@ -569,10 +572,28 @@ def redirects_targets_exist(ctx: Ctx) -> None:
 
     External targets, splats and placeholders are skipped: they cannot be
     resolved against the tree.
+
+    A target served by a static, unconditional 200 rewrite counts as existing
+    when the rewrite lands on a file, whether the rewrite sits in this same
+    redirects file or in a [[redirects]] block of netlify.toml, and whether or
+    not the site sets route_map. The platform applies both files on every
+    deploy, so both are the truth about what a route serves.
     """
     src = ctx.site.read_if(ctx.opt("path", "_redirects"))
     if src is None:
         return
+    rewrites = redirects_rewrites(src)
+    toml_rel = ctx.opt("netlify_toml", "netlify.toml")
+    toml_path = ctx.config.config_path.parent / toml_rel
+    if toml_path.is_file():
+        try:
+            for route, target in netlify_toml_rewrites(
+                    toml_path.read_text(encoding="utf-8")).items():
+                # _redirects is evaluated before netlify.toml on the edge.
+                rewrites.setdefault(route, target)
+        except tomllib.TOMLDecodeError as exc:
+            ctx.fail("%s is not valid TOML, so its rewrites cannot be read: %s"
+                     % (toml_rel, exc))
     for line in src.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
@@ -586,9 +607,10 @@ def redirects_targets_exist(ctx: Ctx) -> None:
         if "*" in target or ":" in target or "*" in source:
             continue
         ctx.seen()
-        # A target is a route, not a file: resolve it the way links are
-        # resolved (route_map, then the file layout) plus the pretty URL form.
-        if ctx.site.served_file(target) is None:
+        # A target is a route, not a file: resolve it through the 200
+        # rewrites, then the way links are resolved (route_map, then the file
+        # layout) plus the pretty URL form.
+        if ctx.site.served_file(target, rewrites) is None:
             ctx.fail(
                 "_redirects sends %s to %s, which does not exist. The status "
                 "code is still honoured, so this fails silently and serves the "

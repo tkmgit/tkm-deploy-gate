@@ -204,12 +204,16 @@ the daily probe.
 site does not serve. A redirect to a missing page still returns the status it
 asks for, so nothing looks wrong while the platform's generic page ships.
 
-A target is a route, not a file, and is resolved the way links are: through
-`route_map` first (a `200` rewrite), then the file layout (`index.html` for a
-directory), then the pretty URL form Netlify serves without a rule (`/en` from
-`en.html`). A bare directory with no `index.html` is not a page. External
-targets, splats and placeholders are skipped. Option: `path` (default
-`_redirects`).
+A target is a route, not a file. It exists when a static, unconditional `200`
+rewrite lands on a file, read from the same `_redirects` file and from
+`[[redirects]]` blocks with `status = 200` in `netlify.toml`, with or without
+`route_map`. Otherwise it is resolved the way links are: through `route_map`,
+then the file layout (`index.html` for a directory), then the pretty URL form
+Netlify serves without a rule (`/en` from `en.html`). A bare directory with no
+`index.html` is not a page. Rewrites with conditions, external targets, splats
+and placeholders do not prove a route. Options: `path` (default `_redirects`,
+under the site root), `netlify_toml` (default `netlify.toml`, next to
+`gate.toml`).
 
 Ships as an error and ON.
 

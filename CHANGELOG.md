@@ -3,6 +3,25 @@
 Entries start at 1.14.0. Earlier versions are described in their tagged
 commit messages (`git log --oneline`).
 
+## 1.15.1
+
+- `redirects.targets_exist` reads every static, unconditional `200` rewrite,
+  not only the ones in `route_map`. A target counts as existing when such a
+  rewrite lands on a file, whether the rewrite sits in the same `_redirects`
+  file or in a `[[redirects]]` block with `status = 200` in `netlify.toml`
+  (next to `gate.toml`; option `netlify_toml` names another path). Before, a
+  site without `route_map` failed `/old /new 301` although `/new` was a `200`
+  rewrite in the same file, and a rewrite in `netlify.toml` was never read.
+- A file served at several routes through `route_map` now resolves from every
+  one of them. Before, the map kept one route per file, so a redirect or link
+  to the second route read as missing. The first route stays the file's own
+  route for canonical and sitemap checks.
+- Still fails: a rewrite whose file does not exist, a `301` or `302` treated as
+  if it served the route, a rewrite with conditions (`Language=`, `Country=`,
+  `conditions`, `query`), a target with no rule and no file. An invalid
+  `netlify.toml` is reported. Splats and placeholders are skipped as before.
+  Every 1.15.0 fixture gives the same result. Fixtures cover both directions.
+
 ## 1.15.0
 
 - `redirects.targets_exist` resolves a target as a route, not as a file. It

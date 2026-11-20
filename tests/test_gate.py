@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import trees  # noqa: E402
 from tkm_gate.cli import main, run  # noqa: E402
 from tkm_gate.report import ConfigError, Severity  # noqa: E402
+from tkm_gate.site import Site  # noqa: E402
 
 
 class TreeCase(unittest.TestCase):
@@ -636,6 +637,121 @@ class TestRedirectTargetsResolveLikeRoutes(TreeCase):
             "/de/blog  /de  301!\n")
         self._use_route_map()
         self.assertIn(self.RULE, self.error_rules())
+
+
+class TestRedirectTargetsReadEveryRewrite(TreeCase):
+    """1.15.1: a 200 rewrite proves a target exists wherever the platform reads
+    it: the same _redirects file without route_map, or a [[redirects]] block in
+    netlify.toml next to gate.toml. Both directions for each source, plus a
+    file served at more than one route.
+    """
+
+    RULE = TestRedirectTargetsResolveLikeRoutes.RULE
+    _page = TestRedirectTargetsResolveLikeRoutes._page
+    _redirects = TestRedirectTargetsResolveLikeRoutes._redirects
+    _use_route_map = TestRedirectTargetsResolveLikeRoutes._use_route_map
+
+    def _netlify_toml(self, text):
+        (self.config.parent / "netlify.toml").write_text(text, encoding="utf-8")
+
+    # ---- _redirects 200 rules, no route_map
+    def test_a_rewrite_in_redirects_passes_without_a_route_map(self):
+        self._page("_prerendered/services--check.html")
+        self._redirects(
+            "/services/check  /_prerendered/services--check.html  200\n"
+            "/services/old-check  /services/check  301\n")
+        self.assertNotIn(self.RULE, self.error_rules())
+
+    def test_a_rewrite_to_a_missing_file_fails_without_a_route_map(self):
+        self._redirects(
+            "/services/check  /_prerendered/services--check.html  200\n"
+            "/services/old-check  /services/check  301\n")
+        self.assertIn(self.RULE, self.error_rules())
+
+    def test_a_target_with_no_rewrite_still_fails_without_a_route_map(self):
+        self._page("_prerendered/services--check.html")
+        self._redirects(
+            "/services/check  /_prerendered/services--check.html  200\n"
+            "/services/old-other  /services/other  301\n")
+        self.assertIn(self.RULE, self.error_rules())
+
+    def test_a_conditional_rewrite_does_not_prove_the_target(self):
+        # Served to Spanish speaking visitors only: everyone else gets nothing.
+        self._page("_prerendered/services--check.html")
+        self._redirects(
+            "/services/check  /_prerendered/services--check.html  200  Language=es\n"
+            "/services/old-check  /services/check  301\n")
+        self.assertIn(self.RULE, self.error_rules())
+
+    def test_a_301_is_not_a_rewrite(self):
+        self._page("_prerendered/services--check.html")
+        self._redirects(
+            "/services/check  /_prerendered/services--check.html  302\n"
+            "/services/old-check  /services/check  301\n")
+        self.assertIn(self.RULE, self.error_rules())
+
+    # ---- netlify.toml [[redirects]] status 200
+    def test_a_rewrite_in_netlify_toml_passes(self):
+        self._page("_prerendered/services--check.html")
+        self._netlify_toml(
+            '[[redirects]]\n  from = "/services/check"\n'
+            '  to = "/_prerendered/services--check.html"\n  status = 200\n')
+        self._redirects("/services/old-check  /services/check  301\n")
+        self.assertNotIn(self.RULE, self.error_rules())
+
+    def test_a_netlify_toml_rewrite_to_a_missing_file_fails(self):
+        self._netlify_toml(
+            '[[redirects]]\n  from = "/services/check"\n'
+            '  to = "/_prerendered/services--check.html"\n  status = 200\n')
+        self._redirects("/services/old-check  /services/check  301\n")
+        self.assertIn(self.RULE, self.error_rules())
+
+    def test_a_netlify_toml_redirect_without_status_200_does_not_count(self):
+        # No status means 301 on Netlify.
+        self._page("_prerendered/services--check.html")
+        self._netlify_toml(
+            '[[redirects]]\n  from = "/services/check"\n'
+            '  to = "/_prerendered/services--check.html"\n')
+        self._redirects("/services/old-check  /services/check  301\n")
+        self.assertIn(self.RULE, self.error_rules())
+
+    def test_a_conditional_netlify_toml_rewrite_does_not_count(self):
+        self._page("_prerendered/services--check.html")
+        self._netlify_toml(
+            '[[redirects]]\n  from = "/services/check"\n'
+            '  to = "/_prerendered/services--check.html"\n  status = 200\n'
+            '  conditions = {Language = ["es"]}\n')
+        self._redirects("/services/old-check  /services/check  301\n")
+        self.assertIn(self.RULE, self.error_rules())
+
+    def test_an_invalid_netlify_toml_is_reported(self):
+        self._netlify_toml("[[redirects]\n")
+        self._redirects("/out  https://example.org/  301\n")
+        self.assertIn(self.RULE, self.error_rules())
+
+    # ---- one file, several routes
+    def test_every_route_of_a_file_served_twice_passes(self):
+        self._page("_prerendered/en.html")
+        self._redirects(
+            "/en  /_prerendered/en.html  200\n"
+            "/english  /_prerendered/en.html  200\n"
+            "/en/blog  /english  301!\n")
+        self._use_route_map()
+        self.assertNotIn(self.RULE, self.error_rules())
+
+    def test_the_second_route_resolves_through_the_route_map(self):
+        # Before 1.15.1 the route map kept one route per file, so a link or a
+        # redirect to /english resolved to a file named english that does not
+        # exist. The first route stays the file's own route.
+        self._page("_prerendered/en.html")
+        self._redirects(
+            "/en  /_prerendered/en.html  200\n"
+            "/english  /_prerendered/en.html  200\n")
+        site = Site(self.root, trees.SITE, route_map="_redirects")
+        self.assertEqual(site.resolve("/english", ""), "_prerendered/en.html")
+        self.assertEqual(site.served_file("/english"), "_prerendered/en.html")
+        self.assertEqual(site.route_of("_prerendered/en.html"), "/en")
+        self.assertIsNone(site.served_file("/deutsch"))
 
 
 class TestNoRepoFiles(TreeCase):

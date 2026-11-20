@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
+import tomllib
 from functools import cached_property
 from pathlib import Path
 
@@ -80,16 +81,17 @@ class Site:
 
     # ----------------------------------------------------------------- routes
     @cached_property
-    def _routes_by_file(self) -> dict[str, str]:
+    def _route_map_rules(self) -> list[tuple[str, str]]:
+        """(route, file) for every static 200 rewrite in the route_map file."""
         if not self.route_map_file:
-            return {}
+            return []
         src = self.read_if(self.route_map_file)
         if src is None:
             raise FileNotFoundError(
                 "route_map points at %s which does not exist under %s"
                 % (self.route_map_file, self.root)
             )
-        mapping: dict[str, str] = {}
+        rules: list[tuple[str, str]] = []
         for line in src.splitlines():
             line = line.strip()
             if not line or line.startswith("#"):
@@ -105,12 +107,27 @@ class Site:
             target = target.lstrip("/")
             if target.endswith("/"):
                 target += "index.html"
+            rules.append((route, target))
+        return rules
+
+    @cached_property
+    def _routes_by_file(self) -> dict[str, str]:
+        # A file served at several routes keeps its first route as its own
+        # (canonical, sitemap). Every route still serves it: see below.
+        mapping: dict[str, str] = {}
+        for route, target in self._route_map_rules:
             mapping.setdefault(target, route)
         return mapping
 
     @cached_property
     def _files_by_route(self) -> dict[str, str]:
-        return {route: f for f, route in self._routes_by_file.items()}
+        # Built from the rules, not by inverting _routes_by_file: inverting
+        # kept one route per file, so a second route serving the same file
+        # read as missing. The first rule for a route wins, as on the edge.
+        mapping: dict[str, str] = {}
+        for route, target in self._route_map_rules:
+            mapping.setdefault(route, target)
+        return mapping
 
     def route_of(self, rel: str) -> str:
         mapped = self._routes_by_file.get(rel)
@@ -200,22 +217,100 @@ class Site:
             target = target.rstrip("/") + "/index.html"
         return target
 
-    def served_file(self, route: str) -> str | None:
+    def served_file(self, route: str,
+                    rewrites: dict[str, str] | None = None) -> str | None:
         """The file the platform serves for a site absolute route, or None.
 
         Same resolution as resolve() (rewrite map, then the file layout with
         index.html for a directory), plus the pretty URL form Netlify serves
-        without a rule: /en from en.html. Returns a path only if it exists.
+        without a rule: /en from en.html. `rewrites` adds static 200 rules
+        (route to site absolute target) read by the caller, for example from
+        _redirects or netlify.toml when no route_map is set; they are tried
+        first. Returns a path only if it exists.
         """
+        if rewrites:
+            for candidate in _route_variants(route):
+                target = rewrites.get(candidate)
+                if target is None:
+                    continue
+                found = self._file_at(target.lstrip("/"))
+                if found is not None:
+                    return found
         rel = self.resolve(route, "")
         if rel is None:
             return None
+        return self._file_at(rel)
+
+    def _file_at(self, rel: str) -> str | None:
+        if rel == "" or rel.endswith("/"):
+            rel += "index.html"
         if (self.root / rel).is_file():
             return rel
+        if (self.root / rel).is_dir():
+            index = rel.rstrip("/") + "/index.html"
+            return index if (self.root / index).is_file() else None
         if not rel.endswith("index.html") and (self.root / (rel + ".html")).is_file():
             return rel + ".html"
         return None
 
+
+def _route_variants(route: str) -> tuple[str, ...]:
+    route = route.split("#")[0].split("?")[0]
+    bare = route.rstrip("/") or "/"
+    return (route, bare, bare.rstrip("/") + "/")
+
+
+def _is_static(route: str, target: str) -> bool:
+    return (route.startswith("/") and target.startswith("/")
+            and "*" not in route + target and ":" not in route + target)
+
+
+def redirects_rewrites(src: str) -> dict[str, str]:
+    """Static, unconditional 200 rules of a _redirects file: route to target.
+
+    Splats, placeholders, external targets and rules with conditions
+    (Country=, Language=, Role=, query parameters) are skipped: they do not
+    serve the route to every visitor, so they cannot prove it exists. The
+    first rule for a route wins, as on the edge.
+    """
+    out: dict[str, str] = {}
+    for line in src.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) < 3 or parts[2].rstrip("!") != "200" or len(parts) > 3:
+            continue
+        route, target = parts[0], parts[1]
+        if _is_static(route, target):
+            out.setdefault(route, target)
+    return out
+
+
+def netlify_toml_rewrites(src: str) -> dict[str, str]:
+    """Static, unconditional status 200 [[redirects]] of a netlify.toml.
+
+    Same exclusions as redirects_rewrites(); a rule with `conditions` or
+    `query` is conditional. Raises tomllib.TOMLDecodeError on invalid TOML.
+    """
+    data = tomllib.loads(src)
+    out: dict[str, str] = {}
+    rules = data.get("redirects", [])
+    if not isinstance(rules, list):
+        return out
+    for r in rules:
+        if not isinstance(r, dict):
+            continue
+        try:
+            status = int(r.get("status", 301))
+        except (TypeError, ValueError):
+            continue
+        if status != 200 or r.get("conditions") or r.get("query"):
+            continue
+        route, target = str(r.get("from", "")), str(r.get("to", ""))
+        if _is_static(route, target):
+            out.setdefault(route, target)
+    return out
 
 def _normpath(p: str) -> str:
     parts: list[str] = []
