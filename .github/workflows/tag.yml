@@ -1,0 +1,45 @@
+# Creates a release tag (Actions > tag > Run workflow). It refuses unless the
+# version equals "v" + the pyproject version AT THE COMMIT BEING TAGGED, the
+# tag does not exist yet and the fixture tests pass at that commit. The
+# commit defaults to main; give the release commit when a later commit (for
+# example this workflow) sits on top of it. No secret beyond the workflow's
+# own GITHUB_TOKEN. Tags stay the only thing a site pins.
+name: tag
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag to create, e.g. v1.15.1'
+        required: true
+      commit:
+        description: 'Commit to tag (full or short SHA); empty for main'
+        required: false
+        default: ''
+permissions:
+  contents: write
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - env:
+          VERSION: ${{ inputs.version }}
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          target="${COMMIT:-origin/main}"
+          sha="$(git rev-parse --verify "$target^{commit}")"
+          git checkout --quiet "$sha"
+          want="v$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          [ "$VERSION" = "$want" ] || { echo "version $VERSION does not match pyproject at $sha ($want)"; exit 1; }
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then echo "$VERSION exists"; exit 1; fi
+          python -m unittest discover -s tests
+          git config user.name tkmgit
+          git config user.email info@tkmphoto.com
+          git tag -a "$VERSION" "$sha" -m "$VERSION"
+          git push origin "refs/tags/$VERSION"
+          echo "tagged $VERSION at $sha"
